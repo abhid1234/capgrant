@@ -13,14 +13,23 @@
 //       narrower sub-grant from a delegable parent.
 //  - `audit <actions.json>`: score whether a batch of actions stayed in scope.
 //  - `hook install|run`: git pre-commit adapter — check staged writes.
+//  - `request <action> <resource> --subject --reason`: raise a human-in-the-loop
+//       approval request for an action no live grant covers.
+//  - `approve <request-id> --approver --ttl <dur>`: approve a pending request,
+//       minting a scoped, expiring just-in-time grant for it.
+//  - `deny <request-id> --approver [--reason]`: deny a pending request.
+//  - `pending`: list pending approval requests awaiting a decision.
 
 import { readFileSync } from "node:fs";
 import {
   validateGrant,
   validateRegistry,
   validateRevocation,
+  validateApprovalRequest,
+  validateDecision,
 } from "../src/schema.js";
 import { makeGrant, delegate, revoke, parseTtl } from "../src/grant.js";
+import { requestApproval, decide } from "../src/approval.js";
 import { check } from "../src/check.js";
 import { audit } from "../src/audit.js";
 import {
@@ -69,16 +78,32 @@ Usage:
       What the hook runs: check the staged files as fs.write actions. Exit 0 by
       default even out of scope; CAPGRANT_ENFORCE=1 exits 1 so git aborts.
   capgrant validate <file> [--json]
-      Validate a grant, revocation, or registry JSON file.
+      Validate a grant, revocation, approval_request, decision, or registry file.
+  capgrant request <action> <resource> --subject <id> --reason "<why>"
+                   [--requested-by <id>] [--registry <path>] [--json]
+      Raise a human-in-the-loop approval request for an action no live grant
+      covers. Status starts pending until approved/denied. Exit 0 on write.
+  capgrant approve <request-id> --approver <id> --ttl <dur>
+                   [--reason "<why>"] [--registry <path>] [--json]
+      Approve a pending request (full id or unambiguous prefix), minting a
+      scoped just-in-time grant that expires <dur> after now. Exit 0 on write.
+  capgrant deny <request-id> --approver <id> [--reason "<why>"]
+                [--registry <path>] [--json]
+      Deny a pending request. Nothing is minted. Exit 0 on write.
+  capgrant pending [--subject <id>] [--registry <path>] [--json]
+      List approval requests still awaiting a decision (status pending).
 
 Flags:
   --cap <action:resource>  a capability, e.g. fs.write:src/** or net.fetch:api.github.com
                            (repeatable). Action is dotted-hierarchical; * = all.
-  --ttl <dur>              lease length: <n>s|m|h|d or bare seconds (default 30m)
+  --ttl <dur>              lease length: <n>s|m|h|d or bare seconds (default 30m;
+                           for approve it is the minted grant's lifetime)
   --delegable              allow the subject to sub-grant a subset (grant)
   --issuer <id>            who is granting/revoking (env CAPGRANT_ISSUER)
-  --subject <id>           the agent the grant is for (env CAPGRANT_AGENT)
-  --reason <str>           why you're revoking (required for revoke)
+  --subject <id>           the agent the grant/request is for (env CAPGRANT_AGENT)
+  --reason <str>           why (required for revoke/request; optional on a decision)
+  --requested-by <id>      who raised the request (request; default: the subject)
+  --approver <id>          who decides an approval (approve/deny; env CAPGRANT_ISSUER)
   --parent <id>            parent grant id to delegate from (delegate)
   --all                    include revoked/expired grants (list)
   --registry <path>        registry file (default: env CAPGRANT_REGISTRY or
@@ -368,14 +393,17 @@ function runCheck(args) {
 
   const path = registry || defaultRegistryPath();
   const now = Date.now();
-  const { grants, notes } = loadRegistry(path, { now });
+  const { grants, requests, notes } = loadRegistry(path, { now });
   warnNotes(notes);
-  const result = check(action, resource, grants, { subject, now });
+  const result = check(action, resource, grants, { subject, now, requests });
 
   if (json) {
     process.stdout.write(JSON.stringify(result) + "\n");
   } else if (result.allowed) {
     process.stdout.write(`allowed ✓ — ${result.reason}\n`);
+  } else if (result.needs_approval) {
+    // Softer than a flat deny: a human can approve this into a just-in-time grant.
+    process.stdout.write(`needs approval ⏳ — ${result.reason}\n`);
   } else {
     process.stdout.write(`denied ✗ — ${result.reason}\n`);
   }
@@ -654,7 +682,296 @@ function runHook(args) {
   fail(`error: unknown hook subcommand: ${sub} (expected install | run)\n\n` + USAGE);
 }
 
+// --- request (human-in-the-loop) -------------------------------------------
+
+function runRequest(args) {
+  let subject = process.env.CAPGRANT_AGENT || null;
+  let reason = null;
+  let requestedBy = null;
+  let registry = null;
+  let json = false;
+  const positional = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--json") json = true;
+    else if (a === "--subject") {
+      subject = args[++i];
+      if (subject == null) fail("error: --subject requires a value\n\n" + USAGE);
+    } else if (a === "--reason") {
+      reason = args[++i];
+      if (reason == null) fail("error: --reason requires a value\n\n" + USAGE);
+    } else if (a === "--requested-by") {
+      requestedBy = args[++i];
+      if (requestedBy == null) fail("error: --requested-by requires a value\n\n" + USAGE);
+    } else if (a === "--registry") {
+      registry = args[++i];
+      if (registry == null) fail("error: --registry requires a value\n\n" + USAGE);
+    } else if (a.startsWith("--")) {
+      fail(`error: unknown flag: ${a}\n\n` + USAGE);
+    } else {
+      positional.push(a);
+    }
+  }
+
+  const [action, resource] = positional;
+  if (!action || !resource) {
+    fail("error: `request` requires <action> and <resource>\n\n" + USAGE);
+  }
+  if (subject == null || subject.trim() === "") {
+    fail("error: `request` requires --subject (or CAPGRANT_AGENT)\n\n" + USAGE);
+  }
+  if (reason == null || reason.trim() === "") {
+    fail("error: `request` requires a non-empty --reason\n\n" + USAGE);
+  }
+  // requested_by defaults to the subject — an agent typically raises its own
+  // request when it hits a wall the grants don't cover.
+  const requested_by = requestedBy != null && requestedBy.trim() !== "" ? requestedBy : subject;
+
+  let req;
+  try {
+    req = requestApproval(action, resource, {
+      subject,
+      reason,
+      requested_by,
+      created: nowIso(),
+    });
+  } catch (e) {
+    fail(`error: ${e.message}`);
+  }
+
+  // Gate the write on the validator, exactly like `grant`.
+  const result = validateApprovalRequest(req);
+  if (!result.valid) {
+    process.stdout.write(
+      `✗ cannot raise request (${result.errors.length} error${result.errors.length === 1 ? "" : "s"}):\n`
+    );
+    for (const e of result.errors) {
+      const at = e.path === "" ? "<root>" : e.path;
+      process.stdout.write(`  ${at}: ${e.message} [${e.code}]\n`);
+    }
+    process.exit(1);
+  }
+
+  const path = registry || defaultRegistryPath();
+  appendRecord(path, req);
+
+  if (json) {
+    process.stdout.write(JSON.stringify(req) + "\n");
+  } else {
+    process.stdout.write(
+      `requested ${shortId(req.id)} — ${req.subject} wants ${req.action} on ${req.resource} ` +
+        `(pending approval): "${req.reason}"\n`
+    );
+  }
+  process.exit(0);
+}
+
+// --- approve / deny (a decision on a request) ------------------------------
+
+// Shared parse for approve/deny: a single positional <request-id> plus the
+// decision flags. `wantTtl` gates whether --ttl is accepted (approve only).
+function parseDecideArgs(args, verb) {
+  let id = null;
+  let approver = process.env.CAPGRANT_ISSUER || null;
+  let reason = null;
+  let ttl = null;
+  let registry = null;
+  let json = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--json") json = true;
+    else if (a === "--approver") {
+      approver = args[++i];
+      if (approver == null) fail("error: --approver requires a value\n\n" + USAGE);
+    } else if (a === "--reason") {
+      reason = args[++i];
+      if (reason == null) fail("error: --reason requires a value\n\n" + USAGE);
+    } else if (a === "--ttl") {
+      ttl = args[++i];
+      if (ttl == null) fail("error: --ttl requires a value\n\n" + USAGE);
+    } else if (a === "--registry") {
+      registry = args[++i];
+      if (registry == null) fail("error: --registry requires a value\n\n" + USAGE);
+    } else if (a.startsWith("--")) {
+      fail(`error: unknown flag: ${a}\n\n` + USAGE);
+    } else if (id == null) {
+      id = a;
+    } else {
+      fail(`error: \`${verb}\` takes a single <request-id> (extra: ${a})\n\n` + USAGE);
+    }
+  }
+  return { id, approver, reason, ttl, registry, json };
+}
+
+function runApprove(args) {
+  const { id, approver, reason, ttl, registry, json } = parseDecideArgs(args, "approve");
+
+  if (id == null || id.trim() === "") {
+    fail("error: `approve` requires a <request-id>\n\n" + USAGE);
+  }
+  if (approver == null || approver.trim() === "") {
+    fail("error: `approve` requires --approver (or CAPGRANT_ISSUER)\n\n" + USAGE);
+  }
+  if (ttl == null || ttl.trim() === "") {
+    fail("error: `approve` requires --ttl (the minted grant's lifetime)\n\n" + USAGE);
+  }
+  const grant_ttl_seconds = parseTtl(ttl);
+  if (grant_ttl_seconds == null) {
+    fail(`error: invalid --ttl: ${ttl} (use <n>s|m|h|d or a positive integer of seconds)`);
+  }
+
+  const path = registry || defaultRegistryPath();
+  const now = Date.now();
+  const { requests } = loadRegistry(path, { now });
+  const request = resolveRequestById(requests, id);
+
+  let decision;
+  try {
+    decision = decide(request, {
+      approver,
+      decision: "approve",
+      at: nowIso(),
+      grant_ttl_seconds,
+      ...(reason != null && reason.trim() !== "" ? { reason } : {}),
+    });
+  } catch (e) {
+    fail(`error: ${e.message}`);
+  }
+
+  // Gate the write on the validator, exactly like `grant`.
+  const result = validateDecision(decision);
+  if (!result.valid) {
+    process.stdout.write(`✗ cannot record decision (${result.errors.length} errors):\n`);
+    for (const e of result.errors) {
+      process.stdout.write(`  ${e.path || "<root>"}: ${e.message} [${e.code}]\n`);
+    }
+    process.exit(1);
+  }
+
+  appendRecord(path, decision);
+
+  if (json) {
+    process.stdout.write(JSON.stringify(decision) + "\n");
+  } else {
+    process.stdout.write(
+      `approved ${shortId(request.id)} — minted a grant for ${request.subject}: ` +
+        `${request.action} on ${request.resource} (expires in ${ttl})\n`
+    );
+  }
+  process.exit(0);
+}
+
+function runDeny(args) {
+  const { id, approver, reason, ttl, registry, json } = parseDecideArgs(args, "deny");
+
+  if (ttl != null) {
+    fail("error: `deny` mints nothing, so --ttl is not valid\n\n" + USAGE);
+  }
+  if (id == null || id.trim() === "") {
+    fail("error: `deny` requires a <request-id>\n\n" + USAGE);
+  }
+  if (approver == null || approver.trim() === "") {
+    fail("error: `deny` requires --approver (or CAPGRANT_ISSUER)\n\n" + USAGE);
+  }
+
+  const path = registry || defaultRegistryPath();
+  const now = Date.now();
+  const { requests } = loadRegistry(path, { now });
+  const request = resolveRequestById(requests, id);
+
+  let decision;
+  try {
+    decision = decide(request, {
+      approver,
+      decision: "deny",
+      at: nowIso(),
+      ...(reason != null && reason.trim() !== "" ? { reason } : {}),
+    });
+  } catch (e) {
+    fail(`error: ${e.message}`);
+  }
+
+  appendRecord(path, decision);
+
+  if (json) {
+    process.stdout.write(JSON.stringify(decision) + "\n");
+  } else {
+    process.stdout.write(
+      `denied ${shortId(request.id)} — ${request.subject}'s ${request.action} on ` +
+        `${request.resource} was refused${reason ? ` ("${reason}")` : ""}\n`
+    );
+  }
+  process.exit(0);
+}
+
+// --- pending ---------------------------------------------------------------
+
+function runPending(args) {
+  let subject = null;
+  let registry = null;
+  let json = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--json") json = true;
+    else if (a === "--subject") {
+      subject = args[++i];
+      if (subject == null) fail("error: --subject requires a value\n\n" + USAGE);
+    } else if (a === "--registry") {
+      registry = args[++i];
+      if (registry == null) fail("error: --registry requires a value\n\n" + USAGE);
+    } else if (a.startsWith("--")) {
+      fail(`error: unknown flag: ${a}\n\n` + USAGE);
+    } else {
+      fail(`error: \`pending\` takes no positional arguments (got: ${a})\n\n` + USAGE);
+    }
+  }
+
+  const path = registry || defaultRegistryPath();
+  const now = Date.now();
+  const { requests, notes } = loadRegistry(path, { now });
+  warnNotes(notes);
+
+  let rows = requests.filter((r) => r.status === "pending");
+  if (subject != null) rows = rows.filter((r) => r.subject === subject);
+
+  if (json) {
+    process.stdout.write(JSON.stringify(rows) + "\n");
+    process.exit(0);
+  }
+  if (rows.length === 0) {
+    process.stdout.write("no pending requests\n");
+    process.exit(0);
+  }
+  for (const r of rows) {
+    process.stdout.write(
+      `${r.subject}  ${r.action} on ${r.resource}  — "${r.reason}"  ` +
+        `(by ${r.requested_by})  ${shortId(r.id)}\n`
+    );
+  }
+  process.exit(0);
+}
+
 // --- shared helpers --------------------------------------------------------
+
+// Resolve an approval_request by exact id or unambiguous id prefix; fail() with
+// a clear message on no match or an ambiguous prefix (mirrors resolveById).
+function resolveRequestById(requests, id) {
+  let target = requests.find((r) => r.id === id);
+  if (!target) {
+    const matches = requests.filter((r) => r.id.startsWith(id));
+    if (matches.length > 1) {
+      fail(`error: ambiguous id prefix "${id}" matches ${matches.length} requests`);
+    }
+    target = matches[0];
+  }
+  if (!target) {
+    fail(`error: no approval request with id "${id}"`);
+  }
+  return target;
+}
 
 // Resolve a grant by exact id or unambiguous id prefix; fail() with a clear
 // message on no match or an ambiguous prefix.
@@ -687,6 +1004,10 @@ function main(argv) {
   if (command === "audit") return runAudit(args.slice(1));
   if (command === "hook") return runHook(args.slice(1));
   if (command === "validate") return runValidate(args.slice(1));
+  if (command === "request") return runRequest(args.slice(1));
+  if (command === "approve") return runApprove(args.slice(1));
+  if (command === "deny") return runDeny(args.slice(1));
+  if (command === "pending") return runPending(args.slice(1));
 
   fail(USAGE);
 }

@@ -218,7 +218,7 @@ test.after(() => {
 
 test("loadRegistry on a missing file → empty, no throw", () => {
   const res = loadRegistry(join(dir, "nope.jsonl"), { now: NOW });
-  assert.deepEqual(res, { grants: [], notes: [] });
+  assert.deepEqual(res, { grants: [], requests: [], notes: [] });
 });
 
 test("appendRecord assigns a content-hash id and returns the stored record", () => {

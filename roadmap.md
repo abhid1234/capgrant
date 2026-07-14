@@ -35,6 +35,29 @@
   / `signAsym` / `verifyAsym`), all `node:crypto`, zero-dep. Signers throw on a bad
   key; verifiers never throw (a bad sig/key is simply unverified).
 
+## Shipped (v0.3)
+- Human-in-the-loop (HITL) approval (`src/approval.js`) — the other half of the
+  authorization story. When no live grant covers an action, an agent raises an
+  `approval_request` instead of taking a flat DENY; a human's `decision` to
+  approve MINTS a scoped, expiring **just-in-time grant** for exactly that
+  subject/action/resource (expiring `grant_ttl_seconds` after the decision),
+  parented to the request. So authority is either granted ahead of time OR
+  requested → approved just in time.
+  - `requestApproval(action, resource, { subject, reason, requested_by, created })`
+    and `decide(request, { approver, decision, at, reason?, grant_ttl_seconds? })`
+    record constructors — throw on bad input, like the grant constructors.
+  - `resolveRecords` now folds `approval_request` + `decision` records too: a
+    request's status derives to `approved`/`denied`/`pending`, and an approved
+    request yields a live grant that participates in `check`/`audit` exactly like
+    any grant. Still pure, deterministic, and tolerant — a bad record is noted,
+    never thrown.
+  - `check` gained an additive `needs_approval` flag: when no grant covers the
+    request but a matching PENDING request exists, the deny is *soft*
+    (`needs_approval: true`) rather than flat. `allowed` is unchanged — fully
+    backward-compatible.
+  - Non-throwing `validateApprovalRequest` / `validateDecision` validators.
+  - CLI: `request`, `approve`, `deny`, `pending`.
+
 ## Near-term (aligned — welcome)
 - More action namespaces documented (a small conventional vocabulary:
   `fs.* net.* proc.* git.* deploy.*`).

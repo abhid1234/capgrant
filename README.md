@@ -89,6 +89,7 @@ Zero-dependency ESM. `import { … } from "@avee1234/capgrant"`. Every core func
 
 **Schema & validation** — never throw; each returns `{ valid, errors }` collecting *every* violation.
 - `validateGrant(obj)` / `validateCapability(obj)` / `validateRevocation(obj)` / `validateRegistry(arr)`
+- `validateApprovalRequest(obj)` / `validateDecision(obj)` — the HITL record validators
 - `isDottedAction(s)`, `isIso8601Utc(s)` — the two format primitives
 - `GRANT_FIELDS`, `CAPABILITY_FIELDS`, `STATUSES`, `RECORD_TYPES`, `ERROR_CODES`
 
@@ -106,17 +107,19 @@ Zero-dependency ESM. `import { … } from "@avee1234/capgrant"`. Every core func
 - `makeGrant(capabilities, { issuer, subject, ttl_seconds, created, delegable, parent })`
 - `delegate(parentGrant, capabilities, { issuer, subject, ttl_seconds, created })` — enforces the delegation invariants
 - `revoke(grantId, { issuer, reason, at })`
+- `requestApproval(action, resource, { subject, reason, requested_by, created })` — raise an `approval_request` (HITL)
+- `decide(request, { approver, decision, at, reason?, grant_ttl_seconds? })` — a `decision`; an `approve` mints the just-in-time grant on fold
 - `parseTtl(input)` — `30s` / `20m` / `2h` / `1d` / bare seconds → integer seconds, or `null`
 
 **Registry store** — the append-only JSONL layer.
-- `loadRegistry(path, { now, expire })` → `{ grants, notes }` (missing file → empty, no throw)
+- `loadRegistry(path, { now, expire })` → `{ grants, requests, notes }` (missing file → empty, no throw)
 - `appendRecord(path, record)` — append exactly one line (`O_APPEND`); existing lines are never rewritten
-- `resolveRecords(records, { now, expire })` — fold a raw log into the current grant set (integrity filter, revocations, cascade, TTL)
+- `resolveRecords(records, { now, expire })` → `{ grants, requests, notes }` — fold a raw log into the current grant set **and** approval-request set (integrity filter, revocations, cascade, TTL, plus HITL: request status + any just-in-time grant an approval minted)
 - `defaultRegistryPath(cwd)` — `CAPGRANT_REGISTRY`, else `.capgrant/registry.jsonl`
 - `canonicalize`, `computeRecordId`, `listActive`, `formatRelative`, `shortId`
 
 **Decide & audit** — pure, over a resolved grant array.
-- `check(action, resource, grants, { subject, now, bytes?, method?, calls?, rate?, request? })` → `{ allowed, matched_grant, reason }` (request context scores a constrained grant; specific denial reasons, including the violated constraint)
+- `check(action, resource, grants, { subject, now, bytes?, method?, calls?, rate?, request?, requests? })` → `{ allowed, needs_approval, matched_grant, reason }` (request context scores a constrained grant; specific denial reasons, including the violated constraint; pass the resolved `requests` and a soft deny sets `needs_approval: true` when a matching PENDING request exists — `allowed` is unchanged and additive)
 - `audit(actions, grants, { now })` → `{ score, total, allowed, violations }` (each action may carry `bytes` / `method` / `calls` / `rate`)
 
 **Signed grants** — layered, optional tamper-evidence across trust domains (`node:crypto`, zero-dep). Signers throw on a bad key; verifiers never throw.
@@ -136,6 +139,10 @@ capgrant list [--all] [--subject <id>] [--registry <path>] [--json]
 capgrant delegate --parent <id> --issuer <id> --subject <id> --cap <action:resource> [...] --ttl <dur> [--registry <path>] [--json]
 capgrant revoke <id> --issuer <id> --reason "<why>" [--registry <path>] [--json]
 capgrant audit <actions.json> [--registry <path>] [--json]
+capgrant request <action> <resource> --subject <id> --reason "<why>" [--requested-by <id>] [--registry <path>] [--json]
+capgrant approve <request-id> --approver <id> --ttl <dur> [--registry <path>] [--json]
+capgrant deny <request-id> --approver <id> [--reason "<why>"] [--registry <path>] [--json]
+capgrant pending [--subject <id>] [--registry <path>] [--json]
 capgrant hook install|run [--registry <path>] [--json]
 capgrant validate <file> [--json]
 ```
@@ -146,7 +153,11 @@ capgrant validate <file> [--json]
 - **`delegate`** — mint a narrower sub-grant from a delegable parent (full id or unambiguous prefix). Every capability must fall inside the parent's authority and it cannot outlive the parent. Exit `1` on any escalation.
 - **`revoke <id> --reason`** — withdraw a grant by appending a revocation; **cascades** to any grant delegated from it. A no-op with a note if already revoked (still exit `0`).
 - **`audit <actions.json>`** — replay a JSON array of `{ action, resource, subject, at? }` and score how many stayed in scope (each `at` is that action's `now`, so a grant that was live *then* counts even if it has since expired). Exit `0` = all in scope, `1` = at least one violation.
-- **`validate <file>`** — validate a grant, revocation, or registry JSON file (auto-detected). Exit `1` if invalid.
+- **`request <action> <resource>`** — raise a **human-in-the-loop approval request** for an action no live grant covers. Its status starts `pending`; `--requested-by` defaults to the subject. Exit `0` on write.
+- **`approve <request-id> --approver --ttl <dur>`** — approve a pending request (full id or unambiguous prefix), minting a **just-in-time grant** that expires `--ttl` after the decision. Exit `0` on write.
+- **`deny <request-id> --approver [--reason]`** — deny a pending request; nothing is minted. Exit `0` on write.
+- **`pending`** — list approval requests still awaiting a decision (`--subject` filters to one holder).
+- **`validate <file>`** — validate a grant, revocation, approval_request, decision, or registry JSON file (auto-detected). Exit `1` if invalid.
 
 Common flags: `--issuer <id>` (or `CAPGRANT_ISSUER`), `--subject <id>` (or `CAPGRANT_AGENT`), `--registry <path>` (or `CAPGRANT_REGISTRY`, default `.capgrant/registry.jsonl`), `--json` for machine-readable output.
 
@@ -164,6 +175,65 @@ The hook is **advisory by default** (vision principle: coordinate, don't enforce
 ## The registry
 
 The store is an **append-only JSONL file** (default `.capgrant/registry.jsonl`), meant to be **committed** so grants travel with the repo across worktrees and harnesses. New records are appended as whole lines; existing lines are never rewritten. Every record's `id` is a content hash of its own content, so a duplicated append is idempotent on read and two agents appending at once union-merge cleanly instead of conflicting. A line that fails its integrity check (its `id` no longer matches its content — i.e. it was tampered) or won't parse is skipped with a note surfaced to stderr — one bad line never discards the rest of the registry.
+
+## Human-in-the-loop approval
+
+A grant answers *"what is this agent **pre**-authorized to do."* But real fleets hit actions no live grant covers — and a flat `DENY` there is exactly the "agent permission fatigue" that stalls autonomy. capgrant closes the loop: instead of denying, the agent raises an **approval request** to a human, and the human's **decision** to approve **mints a scoped, expiring grant for exactly that action** — the *just-in-time* grant. Authority is now either granted ahead of time **or** requested → approved just in time, over the same append-only log, with the same content-hash ids and pure, clock-injected fold.
+
+Two new record types join the registry:
+
+- **`approval_request`** — `{ subject, action, resource, reason, requested_by, created, status:'pending' }`. Some agent wants to perform `action` on `resource` and needs a human to say yes.
+- **`decision`** — `{ request_id, decision:'approve'|'deny', approver, at, reason?, grant_ttl_seconds? }`. An `approve` mints a grant for the request's subject/action/resource that expires `grant_ttl_seconds` after the decision's `at`, **parented to the request** so its provenance is the approval.
+
+`resolveRecords` folds both: a request's status derives to `approved` / `denied` / `pending` from its latest decision, and an approved request **yields a live grant that participates in `check` / `audit` exactly like any grant** (it's minted at read time, never appended — the log stays append-only). `check` gained an additive `needs_approval` flag: when no grant covers the request but a matching **pending** request exists, the deny is *soft* (`needs_approval: true`) rather than flat — a signal a human can turn into a grant. `allowed` is unchanged, so the whole feature is backward-compatible.
+
+```js
+import { requestApproval, decide, resolveRecords, check } from "@avee1234/capgrant";
+
+// 1. No live grant covers this — the agent asks instead of taking a hard deny.
+const req = requestApproval("fs.write", "src/auth/login.ts", {
+  subject: "agent-42",
+  reason: "hotfix the login redirect",
+  requested_by: "agent-42",
+  created: "2026-07-14T10:00:00.000Z",
+});
+
+// check sees the pending request → soft deny, not a flat deny.
+const t1 = Date.parse("2026-07-14T10:01:00Z");
+let { grants, requests } = resolveRecords([req], { now: t1 });
+check("fs.write", "src/auth/login.ts", grants, { subject: "agent-42", now: t1, requests });
+// → { allowed: false, needs_approval: true, reason: "no grant — request approval …" }
+
+// 2. A human approves with a 10-minute TTL → a just-in-time grant is minted on fold.
+const dec = decide(req, {
+  approver: "abhi",
+  decision: "approve",
+  at: "2026-07-14T10:02:00.000Z",
+  grant_ttl_seconds: 600,
+});
+
+const t2 = Date.parse("2026-07-14T10:03:00Z");   // inside the 10-min TTL
+({ grants } = resolveRecords([req, dec], { now: t2 }));
+check("fs.write", "src/auth/login.ts", grants, { subject: "agent-42", now: t2 });
+// → { allowed: true, needs_approval: false, matched_grant: <minted grant>, … }
+
+// …and after the 10-minute TTL that minted grant expires like any TTL grant.
+const t3 = Date.parse("2026-07-14T10:20:00Z");
+({ grants } = resolveRecords([req, dec], { now: t3 }));
+check("fs.write", "src/auth/login.ts", grants, { subject: "agent-42", now: t3 });
+// → { allowed: false, needs_approval: false, reason: "denied: … have expired" }
+```
+
+On the CLI this is `request` → `approve` / `deny`, with `pending` to list what's waiting:
+
+```bash
+capgrant request fs.write src/auth/login.ts --subject agent-42 --reason "hotfix the login redirect"
+capgrant pending                                   # what's awaiting a human
+capgrant approve <request-id> --approver abhi --ttl 10m   # mints the just-in-time grant
+capgrant deny <request-id> --approver abhi --reason "not this file"
+```
+
+The approval flow is harness-neutral: Claude Code, Codex, Cursor, or Google Antigravity can all raise a request an operator approves — the request and the minted grant are just records in the shared registry.
 
 ## Signed grants
 
@@ -198,4 +268,4 @@ npx @avee1234/capgrant grant …      # CLI, no install
 
 Requires Node ≥ 18. Run the test suite with `node --test`.
 
-Status: **v0.2** — capability constraints + signed grants (HMAC / ed25519); see [`roadmap.md`](roadmap.md). MIT · zero dependencies · harness-neutral.
+Status: **v0.3** — human-in-the-loop approval (request → approve → just-in-time grant), on top of capability constraints + signed grants (HMAC / ed25519); see [`roadmap.md`](roadmap.md). MIT · zero dependencies · harness-neutral.

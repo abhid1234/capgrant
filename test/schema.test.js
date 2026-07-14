@@ -4,6 +4,8 @@ import {
   validateGrant,
   validateCapability,
   validateRevocation,
+  validateApprovalRequest,
+  validateDecision,
   validateRegistry,
   isIso8601Utc,
   isDottedAction,
@@ -13,6 +15,34 @@ import {
   RECORD_TYPES,
   ERROR_CODES,
 } from "../src/schema.js";
+
+function validApprovalRequest(overrides = {}) {
+  return {
+    id: "req123",
+    type: "approval_request",
+    subject: "agent-A",
+    action: "fs.write",
+    resource: "src/auth/**",
+    reason: "patch auth",
+    requested_by: "agent-A",
+    created: "2026-07-11T12:00:00Z",
+    status: "pending",
+    ...overrides,
+  };
+}
+
+function validDecision(overrides = {}) {
+  return {
+    id: "dec123",
+    type: "decision",
+    request_id: "req123",
+    decision: "approve",
+    approver: "human",
+    at: "2026-07-11T12:05:00Z",
+    grant_ttl_seconds: 600,
+    ...overrides,
+  };
+}
 
 // A canonical fully-valid grant. created + 1800s == expires.
 function validGrant(overrides = {}) {
@@ -57,7 +87,7 @@ const GRANT_REQUIRED = GRANT_FIELDS.filter((f) => f !== "parent");
 
 test("exported constant shapes", () => {
   assert.deepEqual(STATUSES, ["active", "revoked", "expired"]);
-  assert.deepEqual(RECORD_TYPES, ["grant", "revocation"]);
+  assert.deepEqual(RECORD_TYPES, ["grant", "revocation", "approval_request", "decision"]);
   assert.ok(GRANT_FIELDS.includes("capabilities"));
   assert.ok(GRANT_FIELDS.includes("parent"));
   assert.deepEqual(CAPABILITY_FIELDS, ["action", "resource", "constraints"]);
@@ -453,4 +483,95 @@ test("isIso8601Utc rejects offsets, impossible dates, non-UTC, non-strings", () 
   assert.equal(isIso8601Utc("2026-07-11T12:00:00"), false);
   assert.equal(isIso8601Utc(42), false);
   assert.equal(isIso8601Utc(null), false);
+});
+
+// --- validateApprovalRequest -----------------------------------------------
+
+test("a well-formed approval_request is valid", () => {
+  assert.equal(validateApprovalRequest(validApprovalRequest()).valid, true);
+});
+
+test("approval_request accepts the derived approved/denied statuses too", () => {
+  assert.equal(validateApprovalRequest(validApprovalRequest({ status: "approved" })).valid, true);
+  assert.equal(validateApprovalRequest(validApprovalRequest({ status: "denied" })).valid, true);
+});
+
+test("approval_request flags a missing required field", () => {
+  const { requested_by, ...rest } = validApprovalRequest();
+  const res = validateApprovalRequest(rest);
+  assert.equal(res.valid, false);
+  assert.deepEqual(codeAt(res, "requested_by"), [ERROR_CODES.MISSING_FIELD]);
+});
+
+test("approval_request flags an unknown field", () => {
+  const res = validateApprovalRequest(validApprovalRequest({ extra: 1 }));
+  assert.deepEqual(codeAt(res, "extra"), [ERROR_CODES.UNKNOWN_FIELD]);
+});
+
+test("approval_request flags an invalid action, bad status, non-UTC created, wrong type", () => {
+  assert.deepEqual(
+    codeAt(validateApprovalRequest(validApprovalRequest({ action: "NOPE" })), "action"),
+    [ERROR_CODES.INVALID_ACTION]
+  );
+  assert.deepEqual(
+    codeAt(validateApprovalRequest(validApprovalRequest({ status: "weird" })), "status"),
+    [ERROR_CODES.INVALID_ENUM]
+  );
+  assert.deepEqual(
+    codeAt(validateApprovalRequest(validApprovalRequest({ created: "2026-07-11T12:00:00+00:00" })), "created"),
+    [ERROR_CODES.INVALID_ISO8601]
+  );
+  assert.deepEqual(
+    codeAt(validateApprovalRequest(validApprovalRequest({ type: "grant" })), "type"),
+    [ERROR_CODES.INVALID_ENUM]
+  );
+});
+
+test("approval_request on a non-object → NOT_OBJECT", () => {
+  assert.deepEqual(codes(validateApprovalRequest(42)), [ERROR_CODES.NOT_OBJECT]);
+});
+
+// --- validateDecision ------------------------------------------------------
+
+test("a well-formed approve decision is valid", () => {
+  assert.equal(validateDecision(validDecision()).valid, true);
+});
+
+test("a deny decision with neither reason nor grant_ttl_seconds is valid (both optional)", () => {
+  const { grant_ttl_seconds, ...rest } = validDecision({ decision: "deny" });
+  assert.equal(validateDecision(rest).valid, true);
+});
+
+test("decision flags a missing required field", () => {
+  const { request_id, ...rest } = validDecision();
+  const res = validateDecision(rest);
+  assert.deepEqual(codeAt(res, "request_id"), [ERROR_CODES.MISSING_FIELD]);
+});
+
+test("decision flags an unknown field", () => {
+  assert.deepEqual(codeAt(validateDecision(validDecision({ extra: 1 })), "extra"), [ERROR_CODES.UNKNOWN_FIELD]);
+});
+
+test("decision flags a bad decision enum, non-UTC at, non-positive-int grant_ttl_seconds, wrong type", () => {
+  assert.deepEqual(codeAt(validateDecision(validDecision({ decision: "maybe" })), "decision"), [ERROR_CODES.INVALID_ENUM]);
+  assert.deepEqual(codeAt(validateDecision(validDecision({ at: "nope" })), "at"), [ERROR_CODES.INVALID_ISO8601]);
+  assert.deepEqual(codeAt(validateDecision(validDecision({ grant_ttl_seconds: 0 })), "grant_ttl_seconds"), [ERROR_CODES.NOT_POSITIVE_INT]);
+  assert.deepEqual(codeAt(validateDecision(validDecision({ type: "grant" })), "type"), [ERROR_CODES.INVALID_ENUM]);
+});
+
+test("decision on a non-object → NOT_OBJECT", () => {
+  assert.deepEqual(codes(validateDecision(null)), [ERROR_CODES.NOT_OBJECT]);
+});
+
+// --- validateRegistry routes the new record types --------------------------
+
+test("validateRegistry validates approval_request and decision records by type", () => {
+  const res = validateRegistry([validApprovalRequest(), validDecision()]);
+  assert.equal(res.valid, true);
+});
+
+test("validateRegistry surfaces an error inside an approval_request record", () => {
+  const res = validateRegistry([validApprovalRequest({ action: "NOPE" })]);
+  assert.equal(res.valid, false);
+  assert.ok(res.errors.some((e) => e.path === "[0].action" && e.code === ERROR_CODES.INVALID_ACTION));
 });

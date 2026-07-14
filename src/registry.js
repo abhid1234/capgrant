@@ -75,31 +75,40 @@ export function listActive(grants) {
   return grants.filter((g) => g.status === "active");
 }
 
-// resolveRecords(records, { now, expire }) → { grants, notes }
+// resolveRecords(records, { now, expire }) → { grants, requests, notes }
 //
 // Folds an already-parsed append log (order = append order) into the current
-// grant set. Pure and total: `now` (epoch ms) is injected so expiry is
-// deterministic, and no bad field value throws. Nothing is written back — every
-// derived status is computed here at read time.
+// grant set AND the current approval-request set. Pure and total: `now` (epoch
+// ms) is injected so expiry is deterministic, and no bad field value throws.
+// Nothing is written back — every derived status is computed here at read time.
 //
 //   1. Integrity filter — drop any record whose `id` doesn't equal its own
 //      content hash (tamper/corruption), with a note. One bad line never
 //      discards the rest of the registry.
-//   2. Fold grants — latest grant record per `id` wins (content-addressed, so
-//      normally identical; tolerant of a re-append → idempotent). `revocation`
-//      records are collected separately.
-//   3. Apply revocations — a `revocation` moves its `grant_id` to status
-//      "revoked"; an unknown `grant_id` is noted and ignored.
-//   4. CASCADE — any grant whose `parent` chain leads to a revoked grant is
+//   2. Fold by type — latest `grant` record per `id` wins (content-addressed, so
+//      normally identical; tolerant of a re-append → idempotent). `revocation`,
+//      `approval_request`, and `decision` records are collected separately;
+//      anything else is forward-compat noise, skipped with a note.
+//   3. Fold decisions onto requests — the latest `decision` per `request_id`
+//      (append order wins) derives its request's status to "approved"/"denied"
+//      (else it stays "pending"). An APPROVE MINTS a just-in-time grant for the
+//      request's subject/action/resource, expiring `grant_ttl_seconds` after the
+//      decision's `at`, parented to the request — it then joins the grant set
+//      and participates in `check`/`audit` exactly like any grant.
+//   4. Apply revocations — a `revocation` moves its `grant_id` to status
+//      "revoked" (a minted grant can be revoked too); an unknown `grant_id` is
+//      noted and ignored.
+//   5. CASCADE — any grant whose `parent` chain leads to a revoked grant is
 //      itself revoked (a delegated child cannot outlive a revoked parent), each
 //      cascade recorded as a note. Fixed-point so a chain of any depth resolves.
-//   5. Derive TTL expiry — an `active` grant whose `expires <= now` becomes
+//   6. Derive TTL expiry — an `active` grant whose `expires <= now` becomes
 //      effective status "expired" (derived, with a note). Skipped when `expire`
 //      is false, so the stored active/revoked state is returned unchanged —
 //      `audit` needs this because it reasons about time itself via each action's
 //      own `at`.
 //
-// Returns the grants sorted by `expires` ascending plus the collected notes.
+// Returns the grants sorted by `expires` ascending, the approval requests sorted
+// by `created` ascending, plus the collected notes.
 export function resolveRecords(records, opts = {}) {
   const { now = Date.now(), expire = true } = opts;
   const notes = [];
@@ -118,23 +127,57 @@ export function resolveRecords(records, opts = {}) {
     valid.push(r);
   });
 
-  // 2. Fold grants / collect revocations (a record is a revocation iff
-  //    type === "revocation"; a grant iff no type or type === "grant"; anything
-  //    else is forward-compat noise, skipped).
+  // 2. Fold by type (a record is a revocation/approval_request/decision iff its
+  //    `type` says so; a grant iff no type or type === "grant"; anything else is
+  //    forward-compat noise, skipped). Requests fold to "pending" until a
+  //    decision resolves them.
   const grants = new Map();
   const revocations = [];
+  const requests = new Map();
+  const decisions = [];
   for (const r of valid) {
     const type = r.type == null ? "grant" : r.type;
     if (type === "grant") {
       grants.set(r.id, { ...r });
     } else if (type === "revocation") {
       revocations.push(r);
+    } else if (type === "approval_request") {
+      requests.set(r.id, { ...r, status: "pending" });
+    } else if (type === "decision") {
+      decisions.push(r);
     } else {
       notes.push(`skipped record ${shortId(r.id)}: unknown type "${r.type}"`);
     }
   }
 
-  // 3. Apply direct revocations.
+  // 3. Fold decisions onto their requests (latest per request_id wins in append
+  //    order); an approve MINTS a live grant that joins the grant set.
+  const latestDecision = new Map();
+  for (const dec of decisions) {
+    if (!requests.has(dec.request_id)) {
+      notes.push(`decision for unknown request_id ${shortId(dec.request_id)} ignored`);
+      continue;
+    }
+    latestDecision.set(dec.request_id, dec);
+  }
+  for (const [id, req] of requests) {
+    const dec = latestDecision.get(id);
+    if (dec == null) {
+      req.status = "pending";
+      continue;
+    }
+    req.status = dec.decision === "approve" ? "approved" : "denied";
+    req.decided_by = dec.approver;
+    req.decided_at = dec.at;
+    if (dec.reason !== undefined) req.decided_reason = dec.reason;
+    if (dec.decision === "approve") {
+      const minted = mintGrant(req, dec);
+      grants.set(minted.id, minted);
+      notes.push(`request ${shortId(id)} approved → minted grant ${shortId(minted.id)}`);
+    }
+  }
+
+  // 4. Apply direct revocations.
   for (const rev of revocations) {
     const grant = grants.get(rev.grant_id);
     if (!grant) {
@@ -147,7 +190,7 @@ export function resolveRecords(records, opts = {}) {
     grant.revoked_reason = rev.reason;
   }
 
-  // 4. Cascade revocation down delegation chains to a fixed point: a grant with
+  // 5. Cascade revocation down delegation chains to a fixed point: a grant with
   //    a revoked parent is itself revoked (marked as a cascade, so the note and
   //    the reason distinguish it from a direct revocation).
   let changed = true;
@@ -170,7 +213,7 @@ export function resolveRecords(records, opts = {}) {
     }
   }
 
-  // 5. Derive TTL expiry (a grant exactly at expires === now counts as expired).
+  // 6. Derive TTL expiry (a grant exactly at expires === now counts as expired).
   //    Revoked grants keep their revoked status — revocation dominates expiry.
   for (const grant of expire ? grants.values() : []) {
     if (grant.status === "active" && grant.expires != null) {
@@ -183,7 +226,33 @@ export function resolveRecords(records, opts = {}) {
   }
 
   const resolved = [...grants.values()].sort(byExpires);
-  return { grants: resolved, notes };
+  const resolvedRequests = [...requests.values()].sort(byCreated);
+  return { grants: resolved, requests: resolvedRequests, notes };
+}
+
+// mintGrant(request, decision) → the just-in-time grant an APPROVE decision
+// yields: a normal grant record (same canonical shape + content-hash id) for the
+// request's subject/action/resource, minted at the decision's `at` and expiring
+// `grant_ttl_seconds` later, `parent`ed to the request so its provenance is the
+// approval. It is derived at read time only (never appended), so it participates
+// in `check`/`audit` exactly like any grant while the log stays append-only.
+function mintGrant(request, decision) {
+  const created = decision.at;
+  const ttl_seconds = decision.grant_ttl_seconds;
+  const expires = new Date(Date.parse(created) + ttl_seconds * 1000).toISOString();
+  const record = {
+    type: "grant",
+    issuer: decision.approver,
+    subject: request.subject,
+    capabilities: [{ action: request.action, resource: request.resource }],
+    ttl_seconds,
+    created,
+    expires,
+    delegable: false,
+    parent: request.id,
+    status: "active",
+  };
+  return { id: computeRecordId(record), ...record };
 }
 
 // Sort by `expires` ascending; unparseable/absent expiries sort last, stably.
@@ -196,6 +265,18 @@ function byExpires(a, b) {
   if (na) return 1;
   if (nb) return -1;
   return ea - eb;
+}
+
+// Sort by `created` ascending; unparseable/absent timestamps sort last, stably.
+function byCreated(a, b) {
+  const ca = Date.parse(a.created);
+  const cb = Date.parse(b.created);
+  const na = Number.isNaN(ca);
+  const nb = Number.isNaN(cb);
+  if (na && nb) return 0;
+  if (na) return 1;
+  if (nb) return -1;
+  return ca - cb;
 }
 
 // --- I/O layer -------------------------------------------------------------
@@ -218,13 +299,15 @@ export function appendRecord(path, record) {
   return stored;
 }
 
-// loadRegistry(path, { now, expire }) → { grants, notes }
+// loadRegistry(path, { now, expire }) → { grants, requests, notes }
 //
 // Reads the JSONL file (missing file → empty registry, no throw), parses each
 // non-blank line tolerantly (a line that won't parse is dropped with a note,
 // never aborting the load), and returns the resolved current registry via
-// `resolveRecords`. `expire` (default true) forwards to `resolveRecords`; pass
-// false to skip wall-clock TTL decay and see the stored active/revoked state.
+// `resolveRecords` — the live grant set (including any just-in-time grants an
+// approval minted) plus the current approval requests. `expire` (default true)
+// forwards to `resolveRecords`; pass false to skip wall-clock TTL decay and see
+// the stored active/revoked state.
 export function loadRegistry(path, opts = {}) {
   const { now = Date.now(), expire = true } = opts;
 
@@ -232,7 +315,7 @@ export function loadRegistry(path, opts = {}) {
   try {
     raw = readFileSync(path, "utf8");
   } catch (e) {
-    if (e && e.code === "ENOENT") return { grants: [], notes: [] };
+    if (e && e.code === "ENOENT") return { grants: [], requests: [], notes: [] };
     throw e;
   }
 
@@ -249,5 +332,9 @@ export function loadRegistry(path, opts = {}) {
   });
 
   const resolved = resolveRecords(parsed, { now, expire });
-  return { grants: resolved.grants, notes: [...parseNotes, ...resolved.notes] };
+  return {
+    grants: resolved.grants,
+    requests: resolved.requests,
+    notes: [...parseNotes, ...resolved.notes],
+  };
 }

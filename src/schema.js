@@ -16,7 +16,7 @@
 
 export const STATUSES = ["active", "revoked", "expired"];
 
-export const RECORD_TYPES = ["grant", "revocation"];
+export const RECORD_TYPES = ["grant", "revocation", "approval_request", "decision"];
 
 // The exact set of allowed top-level grant fields, in canonical order. `parent`
 // is optional (present only on a delegated sub-grant); every other field is
@@ -46,6 +46,41 @@ const CAPABILITY_REQUIRED = ["action", "resource"];
 // The allowed fields of a revocation record (all required). Kept module-local;
 // not part of the documented export surface.
 const REVOCATION_FIELDS = ["id", "type", "grant_id", "issuer", "reason", "at"];
+
+// The allowed fields of an approval_request record (all required) and a decision
+// record (`reason` + `grant_ttl_seconds` optional). Kept module-local, like the
+// revocation fields.
+const APPROVAL_REQUEST_FIELDS = [
+  "id",
+  "type",
+  "subject",
+  "action",
+  "resource",
+  "reason",
+  "requested_by",
+  "created",
+  "status",
+];
+const DECISION_FIELDS = [
+  "id",
+  "type",
+  "request_id",
+  "decision",
+  "approver",
+  "reason",
+  "at",
+  "grant_ttl_seconds",
+];
+const DECISION_REQUIRED = DECISION_FIELDS.filter(
+  (f) => f !== "reason" && f !== "grant_ttl_seconds"
+);
+
+// The status an approval_request can carry: it is stored "pending" and derived
+// to "approved"/"denied" once a decision folds in.
+const REQUEST_STATUSES = ["pending", "approved", "denied"];
+
+// The two decisions a decision record can express.
+const DECISIONS = ["approve", "deny"];
 
 export const ERROR_CODES = {
   MISSING_FIELD: "MISSING_FIELD",
@@ -298,10 +333,147 @@ export function validateRevocation(obj) {
   return { valid: errors.length === 0, errors };
 }
 
+// validateApprovalRequest(obj) → { valid, errors }
+//
+// An approval_request: some subject wants to perform `action` on `resource` and
+// needs a human to say yes. `action` is a dotted/hierarchical action (or `*`),
+// `resource`/`reason`/`requested_by` are non-empty strings, `created` is
+// ISO-8601 UTC, and `status` is one of pending/approved/denied (stored
+// "pending"; the resolver derives the rest).
+export function validateApprovalRequest(obj) {
+  if (!isPlainObject(obj)) {
+    return {
+      valid: false,
+      errors: [err("", ERROR_CODES.NOT_OBJECT, "approval_request must be a JSON object")],
+    };
+  }
+
+  const errors = [];
+
+  for (const field of APPROVAL_REQUEST_FIELDS) {
+    if (!(field in obj)) {
+      errors.push(err(field, ERROR_CODES.MISSING_FIELD, `${field} is required`));
+    }
+  }
+  for (const key of Object.keys(obj)) {
+    if (!APPROVAL_REQUEST_FIELDS.includes(key)) {
+      errors.push(err(key, ERROR_CODES.UNKNOWN_FIELD, `unknown field: ${key}`));
+    }
+  }
+
+  if ("id" in obj) checkStringField(errors, obj, "id");
+  if ("subject" in obj) checkStringField(errors, obj, "subject");
+  if ("resource" in obj) checkStringField(errors, obj, "resource");
+  if ("reason" in obj) checkStringField(errors, obj, "reason");
+  if ("requested_by" in obj) checkStringField(errors, obj, "requested_by");
+
+  if ("type" in obj && obj.type !== "approval_request") {
+    errors.push(err("type", ERROR_CODES.INVALID_ENUM, 'type must be "approval_request"'));
+  }
+
+  if ("action" in obj) {
+    if (typeof obj.action !== "string") {
+      errors.push(err("action", ERROR_CODES.WRONG_TYPE, "action must be a string"));
+    } else if (obj.action.length === 0) {
+      errors.push(err("action", ERROR_CODES.EMPTY_STRING, "action must not be empty"));
+    } else if (!isDottedAction(obj.action)) {
+      errors.push(
+        err(
+          "action",
+          ERROR_CODES.INVALID_ACTION,
+          "action must be dotted lowercase segments (e.g. fs.write) or *"
+        )
+      );
+    }
+  }
+
+  if ("created" in obj && !isIso8601Utc(obj.created)) {
+    errors.push(err("created", ERROR_CODES.INVALID_ISO8601, "created must be ISO 8601 UTC (…Z)"));
+  }
+
+  if ("status" in obj && !REQUEST_STATUSES.includes(obj.status)) {
+    errors.push(
+      err("status", ERROR_CODES.INVALID_ENUM, `status must be one of: ${REQUEST_STATUSES.join(", ")}`)
+    );
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+// validateDecision(obj) → { valid, errors }
+//
+// A decision resolves an approval_request: `decision` is approve|deny, `approver`
+// / `request_id` are non-empty strings, `at` is ISO-8601 UTC, `reason` is an
+// optional non-empty string, and `grant_ttl_seconds` — when present — is a
+// positive integer (the TTL of the grant an approve mints).
+export function validateDecision(obj) {
+  if (!isPlainObject(obj)) {
+    return {
+      valid: false,
+      errors: [err("", ERROR_CODES.NOT_OBJECT, "decision must be a JSON object")],
+    };
+  }
+
+  const errors = [];
+
+  for (const field of DECISION_REQUIRED) {
+    if (!(field in obj)) {
+      errors.push(err(field, ERROR_CODES.MISSING_FIELD, `${field} is required`));
+    }
+  }
+  for (const key of Object.keys(obj)) {
+    if (!DECISION_FIELDS.includes(key)) {
+      errors.push(err(key, ERROR_CODES.UNKNOWN_FIELD, `unknown field: ${key}`));
+    }
+  }
+
+  if ("id" in obj) checkStringField(errors, obj, "id");
+  if ("request_id" in obj) checkStringField(errors, obj, "request_id");
+  if ("approver" in obj) checkStringField(errors, obj, "approver");
+  if ("reason" in obj) checkStringField(errors, obj, "reason");
+
+  if ("type" in obj && obj.type !== "decision") {
+    errors.push(err("type", ERROR_CODES.INVALID_ENUM, 'type must be "decision"'));
+  }
+  if ("decision" in obj && !DECISIONS.includes(obj.decision)) {
+    errors.push(
+      err("decision", ERROR_CODES.INVALID_ENUM, `decision must be one of: ${DECISIONS.join(", ")}`)
+    );
+  }
+  if ("at" in obj && !isIso8601Utc(obj.at)) {
+    errors.push(err("at", ERROR_CODES.INVALID_ISO8601, "at must be ISO 8601 UTC (…Z)"));
+  }
+  if ("grant_ttl_seconds" in obj) {
+    const t = obj.grant_ttl_seconds;
+    if (typeof t !== "number" || !Number.isInteger(t) || t <= 0) {
+      errors.push(
+        err(
+          "grant_ttl_seconds",
+          ERROR_CODES.NOT_POSITIVE_INT,
+          "grant_ttl_seconds must be an integer > 0"
+        )
+      );
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+// Dispatch one registry record to the validator for its `type`; a record with
+// no/unknown type is validated as a grant, the default record.
+function validateByType(record) {
+  const type = isPlainObject(record) ? record.type : undefined;
+  if (type === "revocation") return validateRevocation(record);
+  if (type === "approval_request") return validateApprovalRequest(record);
+  if (type === "decision") return validateDecision(record);
+  return validateGrant(record);
+}
+
 // validateRegistry(arr) → { valid, errors }
 //
-// An array of records, each a `grant` or a `revocation` (dispatched on `type`;
-// a record with no/unknown type is validated as a grant, the default record).
+// An array of records, each a `grant`, a `revocation`, an `approval_request`, or
+// a `decision` (dispatched on `type`; a record with no/unknown type is validated
+// as a grant, the default record).
 export function validateRegistry(arr) {
   if (!Array.isArray(arr)) {
     return {
@@ -313,8 +485,7 @@ export function validateRegistry(arr) {
   const errors = [];
 
   arr.forEach((record, i) => {
-    const isRevocation = isPlainObject(record) && record.type === "revocation";
-    const result = isRevocation ? validateRevocation(record) : validateGrant(record);
+    const result = validateByType(record);
     for (const e of result.errors) {
       const path = e.path === "" ? `[${i}]` : `[${i}].${e.path}`;
       errors.push(err(path, e.code, e.message));
