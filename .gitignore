@@ -1,0 +1,7 @@
+node_modules/
+*.log
+.DS_Store
+.vercel/
+.capgrant/
+_video/
+_smoke*.mjs
