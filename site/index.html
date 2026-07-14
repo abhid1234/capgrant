@@ -310,6 +310,22 @@
   .fnote{color:var(--faint);font-size:12px;margin-top:18px;line-height:1.7;}
   .fnote .mono{color:var(--ink2);}
 
+  /* ---------- v0.2: capability constraints ---------- */
+  .capitem{margin-bottom:13px;padding-bottom:11px;border-bottom:1px dashed var(--line);}
+  .capitem:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
+  .capcon{display:grid;grid-template-columns:1fr 1.35fr 1fr;gap:8px;margin-top:7px;}
+  .capcon input{font-size:12px;padding:7px 9px;}
+  .capcon .clbl{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:4px;display:block;}
+  .conline{margin-top:7px;display:flex;flex-wrap:wrap;gap:5px;}
+  .cchip{font-size:10px;color:var(--amber);background:rgba(255,180,84,.1);border:1px solid rgba(255,180,84,.28);
+    border-radius:5px;padding:2px 7px;letter-spacing:.3px;}
+  .conhint{font-size:10.5px;color:var(--faint);margin-top:5px;line-height:1.4;}
+
+  /* ---------- v0.2: sign tab ---------- */
+  #sg-pub{font-family:"JetBrains Mono",monospace;}
+  .sg-note{font-size:11px;color:var(--faint);margin-top:12px;line-height:1.55;border-top:1px solid var(--line);padding-top:11px;}
+  label.ck input[type=radio]{width:16px;height:16px;}
+
   .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#0f131a;
     border:1px solid var(--line2);color:var(--ink);padding:11px 18px;border-radius:10px;font-size:13px;opacity:0;
     transition:.25s;pointer-events:none;z-index:60;box-shadow:0 12px 30px -12px #000;}
@@ -365,11 +381,12 @@
         <button class="tab" role="tab" aria-selected="false" data-tab="delegate"><span class="num">03</span>Delegate</button>
         <button class="tab" role="tab" aria-selected="false" data-tab="revoke"><span class="num">04</span>Revoke</button>
         <button class="tab" role="tab" aria-selected="false" data-tab="audit"><span class="num">05</span>Audit</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="sign"><span class="num">06</span>Sign</button>
       </div>
 
       <!-- 01 GRANT -->
       <div class="panel on" id="p-grant" role="tabpanel">
-        <p class="pdesc">Issue a scoped, expiring grant: <b>who</b> (subject) may do <b>what</b> (capabilities: action <span class="scope"><span class="b">:</span></span> resource) over <b>how long</b> (TTL), and <b>who said so</b> (issuer). The real <code>makeGrant()</code> validates every field, computes <code>expires = created + ttl</code>, mints a content-hash id, and appends it to the registry — rendered as a laminated keycard.</p>
+        <p class="pdesc">Issue a scoped, expiring grant: <b>who</b> (subject) may do <b>what</b> (capabilities: action <span class="scope"><span class="b">:</span></span> resource) over <b>how long</b> (TTL), and <b>who said so</b> (issuer). <span class="v">v0.2:</span> a capability can carry optional <b>constraints</b> — <code>max_bytes</code>, an HTTP <code>methods</code> allow-list, a <code>path_depth</code> cap — extra conditions a request must also satisfy. The real <code>makeGrant()</code> validates every field, computes <code>expires = created + ttl</code>, mints a content-hash id, and appends it to the registry — rendered as a laminated keycard.</p>
         <div class="grid2">
           <div class="card">
             <div class="field">
@@ -406,7 +423,7 @@
 
       <!-- 02 CHECK -->
       <div class="panel" id="p-check" role="tabpanel">
-        <p class="pdesc">The pre-action turnstile. <code>check(action, resource, grants, {subject})</code> asks: does a <span class="g">live grant for this subject</span> cover this request? The barrier lifts <span class="g">green on ALLOW</span>, slams <span class="r">red on DENY</span> — always with the real, specific reason.</p>
+        <p class="pdesc">The pre-action turnstile. <code>check(action, resource, grants, {subject, bytes, method})</code> asks: does a <span class="g">live grant for this subject</span> cover this request? <span class="v">v0.2:</span> a request can declare a <b>byte size</b> and an <b>HTTP method</b> — so a request that's <b>in-scope</b> can still be <span class="r">denied for violating a constraint</span> (e.g. over the grant's <code>max_bytes</code>). The barrier lifts <span class="g">green on ALLOW</span>, slams <span class="r">red on DENY</span> — always with the real, specific reason.</p>
         <div class="card">
           <div class="row wrap" style="gap:12px;margin-bottom:16px">
             <div style="flex:1;min-width:130px"><span class="lbl">action</span>
@@ -417,6 +434,15 @@
             <div style="flex:2;min-width:170px"><span class="lbl">resource</span><input id="c-resource" value="src/auth/login.ts"></div>
             <div style="flex:1;min-width:120px"><span class="lbl">subject</span><input id="c-subject" value="builder" list="subjects"></div>
             <button class="btn pri" id="c-run" style="margin-top:19px">check →</button>
+          </div>
+          <div class="row wrap" style="gap:12px;margin-bottom:16px">
+            <div style="flex:1;min-width:120px"><span class="lbl">bytes <span style="color:var(--faint);text-transform:none;letter-spacing:0">· request-context</span></span><input id="c-bytes" placeholder="e.g. 5000" inputmode="numeric"></div>
+            <div style="flex:1;min-width:120px"><span class="lbl">method</span>
+              <select id="c-method">
+                <option value="">— none —</option>
+                <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
+              </select></div>
+            <div style="flex:1.4;min-width:150px;align-self:flex-end;color:var(--faint);font-size:11.5px;line-height:1.45;padding-bottom:4px">A grant's <b style="color:var(--ink2)">constraints</b> score the budget a request declares for itself — leave blank to skip that axis.</div>
           </div>
           <div class="gatewrap">
             <div class="stage" id="stage">
@@ -433,6 +459,7 @@
                 <button class="btn ghost sm" data-fill="in">✓ in-scope example</button>
                 <button class="btn ghost sm" data-fill="out">✗ fs.write /etc/passwd</button>
                 <button class="btn ghost sm" data-fill="subj">✗ wrong subject</button>
+                <button class="btn ghost sm" data-fill="con">✗ over max_bytes</button>
               </div>
             </div>
           </div>
@@ -526,6 +553,55 @@
                 <div id="a-detail"></div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06 SIGN -->
+      <div class="panel" id="p-sign" role="tabpanel">
+        <p class="pdesc">A content-hash id proves <b>integrity</b>, but anyone can recompute it — it doesn't prove <b>authorship</b>. When a grant crosses a trust boundary, sign it. Pick a grant, sign its <span class="v">canonical content</span> — the exact byte string capgrant's own <code>canonicalize()</code> builds (id &amp; signature excluded) — then <span class="g">verify</span>. Flip <b>tamper</b> to mutate one field and watch verification go <span class="r">red</span>.</p>
+        <div class="grid2">
+          <div class="card">
+            <div class="field">
+              <span class="lbl">grant to sign &nbsp;·&nbsp; from the registry</span>
+              <select id="sg-grant"></select>
+            </div>
+            <div class="field">
+              <span class="lbl">scheme</span>
+              <div class="row wrap" style="gap:16px">
+                <label class="ck"><input type="radio" name="sg-scheme" value="hmac" checked> HMAC-SHA256 <span style="color:var(--faint)">· shared secret</span></label>
+                <label class="ck"><input type="radio" name="sg-scheme" value="ed25519"> Ed25519 <span style="color:var(--faint)">· keypair</span></label>
+              </div>
+            </div>
+            <div class="field" id="sg-hmac-wrap">
+              <span class="lbl">shared secret</span>
+              <input id="sg-secret" value="fleet-shared-key" placeholder="the MAC secret both parties hold">
+            </div>
+            <div class="field" id="sg-ed-wrap" style="display:none">
+              <span class="lbl">ed25519 keypair</span>
+              <div class="row wrap" style="gap:10px;align-items:center">
+                <button class="btn ghost sm" id="sg-genkey">⚙ generate keypair</button>
+                <span id="sg-pub" style="font-size:11px;color:var(--faint);word-break:break-all;flex:1;min-width:120px">no keypair yet — the signer holds the private key; anyone with the public key can verify.</span>
+              </div>
+            </div>
+            <div class="field row wrap" style="gap:10px;align-items:center">
+              <button class="btn pri" id="sg-sign">✎ sign canonical content</button>
+              <button class="btn ghost" id="sg-verify">verify</button>
+              <label class="ck" style="margin-left:auto"><input type="checkbox" id="sg-tamper"> tamper</label>
+            </div>
+            <div class="sg-note">Canonicalization is capgrant's real library code. The signature is a standard <b>HMAC-SHA256</b> / <b>Ed25519</b> over those bytes via the browser's native WebCrypto — verifiable offline by any conforming implementation.</div>
+          </div>
+          <div class="card dim">
+            <span class="lbl">signing pre-image &nbsp;·&nbsp; capgrant canonical bytes</span>
+            <div class="jsonl">
+              <div class="jh">canonicalize(record) · id &amp; signature excluded</div>
+              <pre id="sg-preimage" class="empty">— pick a grant —</pre>
+            </div>
+            <div style="margin-top:14px">
+              <span class="lbl">signature <span id="sg-sig-alg" style="color:var(--faint);text-transform:none;letter-spacing:0"></span></span>
+              <div class="jsonl"><pre id="sg-sig" class="empty">— unsigned —</pre></div>
+            </div>
+            <div class="verdict" id="sg-verdict" style="margin-top:14px"><div class="big" style="color:var(--faint)">awaiting verify…</div><div class="reason">Sign a grant, then verify. Flip “tamper” to mutate one field and watch verification fail.</div></div>
           </div>
         </div>
       </div>
@@ -638,7 +714,7 @@ import { check } from './lib/check.js';                       // verbatim src/ch
 import { audit } from './lib/audit.js';                       // verbatim src/audit.js
 import { capabilityCovers } from './lib/capability.js';       // verbatim src/capability.js
 import { makeGrant, delegate, revoke, parseTtl } from './lib/grant-browser.js';
-import { resolveRecords, shortId, formatRelative } from './lib/registry-browser.js';
+import { resolveRecords, shortId, formatRelative, canonicalize } from './lib/registry-browser.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -669,25 +745,64 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 
 // ---------- capability rows (issue form) ----------
 const ACTIONS = ['fs.write','fs.read','fs','net.fetch','proc.exec','*'];
-function capRowHTML(action='fs.write', resource='src/**'){
+function capRowHTML(action='fs.write', resource='src/**', con={}){
   const opts = ACTIONS.map(a=>`<option${a===action?' selected':''}>${a}</option>`).join('');
-  return `<div class="caprow">
-    <select class="cap-a">${opts}</select>
-    <input class="cap-r" value="${esc(resource)}" placeholder="src/** · api.github.com">
-    <button class="x" title="remove">×</button>
+  const mb = typeof con.max_bytes==='number' ? con.max_bytes : '';
+  const me = Array.isArray(con.methods) ? con.methods.join(',') : '';
+  const pd = typeof con.path_depth==='number' ? con.path_depth : '';
+  return `<div class="capitem">
+    <div class="caprow">
+      <select class="cap-a">${opts}</select>
+      <input class="cap-r" value="${esc(resource)}" placeholder="src/** · api.github.com">
+      <button class="x" title="remove">×</button>
+    </div>
+    <div class="capcon">
+      <div><span class="clbl">max_bytes</span><input class="cap-bytes" value="${esc(mb)}" placeholder="e.g. 4096" inputmode="numeric"></div>
+      <div><span class="clbl">methods</span><input class="cap-methods" value="${esc(me)}" placeholder="GET,POST"></div>
+      <div><span class="clbl">path_depth</span><input class="cap-depth" value="${esc(pd)}" placeholder="e.g. 3" inputmode="numeric"></div>
+    </div>
+    <div class="conhint">optional v0.2 constraints — a covered request must also satisfy these. Delegation may only tighten them.</div>
   </div>`;
 }
-function addCapRow(a,r){ $('g-caps').insertAdjacentHTML('beforeend', capRowHTML(a,r)); wireCapRemovers(); }
+function addCapRow(a,r,con){ $('g-caps').insertAdjacentHTML('beforeend', capRowHTML(a,r,con)); wireCapRemovers(); }
 function wireCapRemovers(){
-  $('g-caps').querySelectorAll('.caprow .x').forEach(b=>b.onclick=()=>{
-    if($('g-caps').querySelectorAll('.caprow').length>1) b.closest('.caprow').remove();
+  $('g-caps').querySelectorAll('.capitem .x').forEach(b=>b.onclick=()=>{
+    if($('g-caps').querySelectorAll('.capitem').length>1) b.closest('.capitem').remove();
   });
 }
 function readCaps(){
-  return [...$('g-caps').querySelectorAll('.caprow')].map(row=>({
-    action: row.querySelector('.cap-a').value.trim(),
-    resource: row.querySelector('.cap-r').value.trim(),
-  }));
+  return [...$('g-caps').querySelectorAll('.capitem')].map(item=>{
+    const cap = {
+      action: item.querySelector('.cap-a').value.trim(),
+      resource: item.querySelector('.cap-r').value.trim(),
+    };
+    const constraints = {};
+    const b = item.querySelector('.cap-bytes').value.trim();
+    const m = item.querySelector('.cap-methods').value.trim();
+    const d = item.querySelector('.cap-depth').value.trim();
+    if(b !== '' && Number.isFinite(+b)) constraints.max_bytes = +b;
+    if(m !== '') constraints.methods = m.split(',').map(x=>x.trim()).filter(Boolean);
+    if(d !== '' && Number.isFinite(+d)) constraints.path_depth = +d;
+    if(Object.keys(constraints).length) cap.constraints = constraints;
+    return cap;
+  });
+}
+// Human-readable constraint chips for a capability badge.
+function constraintText(con){
+  const parts = [];
+  if(typeof con.max_bytes==='number') parts.push(`max_bytes ${con.max_bytes}`);
+  if(typeof con.max_calls==='number') parts.push(`max_calls ${con.max_calls}`);
+  if(typeof con.rate==='number') parts.push(`rate ${con.rate}`);
+  if(Array.isArray(con.methods)) parts.push(`methods ${con.methods.join('/')}`);
+  if(typeof con.path_depth==='number') parts.push(`path_depth ${con.path_depth}`);
+  return parts.map(p=>`<span class="cchip">⛓ ${esc(p)}</span>`).join(' ');
+}
+function capBadgeHTML(c){
+  let s = scopeHTML(c);
+  if(c.constraints && Object.keys(c.constraints).length){
+    s += `<div class="conline">${constraintText(c.constraints)}</div>`;
+  }
+  return `<div class="cap">${s}</div>`;
 }
 
 // ---------- toast ----------
@@ -707,6 +822,7 @@ async function refresh(){
   renderTree();
   renderRevList();
   renderSubjects();
+  renderSignGrants();
 }
 
 function scopeHTML(cap){
@@ -721,7 +837,7 @@ function renderBadges(){
     const st = g.status;
     const stampCls = st==='active'?'granted':(st==='revoked'?'revoked':'expired');
     const stampTxt = st==='active'?'GRANTED':(st==='revoked'?'REVOKED':'EXPIRED');
-    const caps = (g.capabilities||[]).map(c=>`<div class="cap">${scopeHTML(c)}</div>`).join('');
+    const caps = (g.capabilities||[]).map(capBadgeHTML).join('');
     const rel = st==='active' ? ('expires '+formatRelative(g.expires, NOW)) : (st==='expired'?'lapsed':'withdrawn');
     const del = g.delegable
       ? `<span class="del yes">${IC_CHECK} delegable</span>`
@@ -753,7 +869,7 @@ function renderJsonl(){
   pre.innerHTML = registry.map(r=>{
     const s = JSON.stringify(r);
     return esc(s)
-      .replace(/&quot;(id|type|issuer|subject|action|resource|capabilities|ttl_seconds|created|expires|delegable|parent|status|grant_id|reason|at)&quot;:/g,'<span class="k">&quot;$1&quot;</span>:')
+      .replace(/&quot;(id|type|issuer|subject|action|resource|capabilities|constraints|max_bytes|max_calls|rate|methods|path_depth|ttl_seconds|created|expires|delegable|parent|status|grant_id|reason|at)&quot;:/g,'<span class="k">&quot;$1&quot;</span>:')
       .replace(/:(&quot;[^&]*?&quot;)/g,':<span class="s">$1</span>');
   }).join('\n');
 }
@@ -783,12 +899,21 @@ async function issueGrant(){
 // ---------- CHECK (the gate) ----------
 async function runCheck(action, resource, subject){
   const res = await resolveRecords(registry, { now: NOW });
-  const r = check(action, resource, res.grants, { subject, now: NOW });   // REAL check()
+  const opts = { subject, now: NOW };
+  const bytesRaw = ($('c-bytes')?.value || '').trim();
+  const method = $('c-method')?.value || '';
+  if(bytesRaw !== '' && Number.isFinite(+bytesRaw)) opts.bytes = +bytesRaw;
+  if(method) opts.method = method;
+  const r = check(action, resource, res.grants, opts);   // REAL check() — subject + request-context
   animateGate(r.allowed);
+  const ctxBits = [];
+  if(opts.bytes != null) ctxBits.push(`${opts.bytes} bytes`);
+  if(opts.method) ctxBits.push(opts.method);
+  const ctx = ctxBits.length ? ` <span style="color:var(--faint)">(${esc(ctxBits.join(' · '))})</span>` : '';
   const v=$('verdict');
   v.className = 'verdict '+(r.allowed?'allow':'deny');
   v.innerHTML = `<div class="big">${r.allowed?IC_CHECK+'ALLOW':IC_X+'DENY'}</div>
-    <div class="reason"><span class="scope"><span class="a">${esc(action)}</span> · <span class="r">${esc(resource)}</span></span> for <b>${esc(subject||'—')}</b><br>${esc(r.reason)}</div>`;
+    <div class="reason"><span class="scope"><span class="a">${esc(action)}</span> · <span class="r">${esc(resource)}</span></span> for <b>${esc(subject||'—')}</b>${ctx}<br>${esc(r.reason)}</div>`;
   return r;
 }
 function animateGate(allowed){
@@ -964,15 +1089,128 @@ async function runAudit(){
   }
 }
 
+// ---------- SIGN (WebCrypto over capgrant's real canonical pre-image) ----------
+// The signature is a standard HMAC-SHA256 / Ed25519 over the SAME canonical bytes
+// the library's content-hash id is built from (canonicalize strips `id`; we also
+// strip any `signature` field), so it verifies offline against any conforming impl.
+const enc = new TextEncoder();
+const signState = { keypair: null, signature: null, scheme: 'hmac' };
+
+function hex(buf){ return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
+function unhex(h){ const a=new Uint8Array(h.length/2); for(let i=0;i<a.length;i++) a[i]=parseInt(h.substr(i*2,2),16); return a; }
+function hmacKey(secret){
+  return crypto.subtle.importKey('raw', enc.encode(secret), {name:'HMAC',hash:'SHA-256'}, false, ['sign','verify']);
+}
+function signScheme(){ return (document.querySelector('input[name=sg-scheme]:checked')||{}).value || 'hmac'; }
+// preimage = canonicalize(record without `signature`); canonicalize already excludes `id`.
+function signPreimage(rec){ const { signature, ...rest } = rec; return canonicalize(rest); }
+function currentSignRecord(){
+  const id = $('sg-grant').value;
+  return registry.find(r => r.id === id) || null;
+}
+// The tamper mutation: flip ONE field (subject) so the pre-image — and any
+// signature over it — no longer matches.
+function tamperedOf(rec){
+  const t = JSON.parse(JSON.stringify(rec));
+  t.subject = rec.subject + '-EVIL';
+  return t;
+}
+function activeSignRecord(){
+  const rec = currentSignRecord();
+  if(!rec) return null;
+  return $('sg-tamper').checked ? tamperedOf(rec) : rec;
+}
+function renderSignGrants(){
+  const sel = $('sg-grant'); if(!sel) return;
+  const grants = registry.filter(r => (r.type || 'grant') === 'grant');
+  const prev = sel.value;
+  sel.innerHTML = grants.length
+    ? grants.map(g=>`<option value="${g.id}">${esc(g.subject)} · ${shortId(g.id)} · ${(g.capabilities||[]).map(c=>c.action).join(', ')}</option>`).join('')
+    : `<option value="">— registry empty —</option>`;
+  if(grants.some(g=>g.id===prev)) sel.value = prev;
+  onSignGrantChange();
+}
+function renderSignPreimage(){
+  const rec = activeSignRecord();
+  const pre = $('sg-preimage'); if(!pre) return;
+  if(!rec){ pre.className='empty'; pre.textContent='— pick a grant —'; return; }
+  pre.className=''; pre.textContent = signPreimage(rec);
+}
+function renderSigOut(){
+  const el = $('sg-sig'); if(!el) return;
+  if(!signState.signature){ el.className='empty'; el.textContent='— unsigned —'; $('sg-sig-alg').textContent=''; return; }
+  el.className=''; el.textContent = signState.signature;
+  $('sg-sig-alg').textContent = `· ${signScheme()==='hmac'?'HMAC-SHA256':'Ed25519'} · ${signState.signature.length/2} bytes`;
+}
+function resetSignVerdict(){
+  const v = $('sg-verdict'); if(!v) return;
+  v.className='verdict';
+  v.innerHTML='<div class="big" style="color:var(--faint)">awaiting verify…</div><div class="reason">Sign a grant, then verify. Flip “tamper” to mutate one field and watch verification fail.</div>';
+}
+function onSignGrantChange(){ signState.signature=null; renderSignPreimage(); renderSigOut(); resetSignVerdict(); }
+async function doSign(){
+  const rec = currentSignRecord();
+  if(!rec) return toast('pick a grant to sign', true);
+  if($('sg-tamper').checked){ $('sg-tamper').checked=false; renderSignPreimage(); }
+  const pre = enc.encode(signPreimage(rec));
+  try{
+    if(signScheme()==='hmac'){
+      const secret = $('sg-secret').value;
+      if(!secret) return toast('enter a shared secret', true);
+      const key = await hmacKey(secret);
+      signState.signature = hex(await crypto.subtle.sign('HMAC', key, pre));
+    } else {
+      if(!signState.keypair) return toast('generate a keypair first', true);
+      signState.signature = hex(await crypto.subtle.sign({name:'Ed25519'}, signState.keypair.privateKey, pre));
+    }
+    renderSigOut(); resetSignVerdict();
+    toast(`signed · ${signScheme()==='hmac'?'HMAC-SHA256':'Ed25519'}`);
+  }catch(e){ toast('sign error: '+e.message, true); }
+}
+async function doVerify(){
+  if(!signState.signature) return toast('sign the grant first', true);
+  const rec = activeSignRecord();
+  const pre = enc.encode(signPreimage(rec));
+  const sigBuf = unhex(signState.signature);
+  let ok = false;
+  try{
+    if(signScheme()==='hmac'){
+      const key = await hmacKey($('sg-secret').value);
+      ok = await crypto.subtle.verify('HMAC', key, sigBuf, pre);
+    } else {
+      if(!signState.keypair) return toast('no keypair', true);
+      ok = await crypto.subtle.verify({name:'Ed25519'}, signState.keypair.publicKey, sigBuf, pre);
+    }
+  }catch(e){ ok = false; }
+  const tampered = $('sg-tamper').checked;
+  const alg = signScheme()==='hmac' ? 'HMAC-SHA256' : 'Ed25519';
+  const v = $('sg-verdict');
+  v.className = 'verdict '+(ok?'allow':'deny');
+  v.innerHTML = `<div class="big">${ok?IC_CHECK+'VERIFIED':IC_X+'INVALID'}</div>
+    <div class="reason">${ok
+      ? `${alg} signature matches the canonical pre-image — authentic and untampered.`
+      : `${alg} signature does NOT match the pre-image${tampered?` — the record was tampered (subject flipped to <b>${esc((currentSignRecord()||{}).subject)}-EVIL</b>)`:''}.`}</div>`;
+}
+async function genKeypair(){
+  try{
+    signState.keypair = await crypto.subtle.generateKey({name:'Ed25519'}, true, ['sign','verify']);
+    const raw = await crypto.subtle.exportKey('raw', signState.keypair.publicKey);
+    $('sg-pub').innerHTML = `<b style="color:var(--ink2)">pub</b> ${hex(raw)}`;
+    signState.signature=null; renderSigOut(); resetSignVerdict();
+    toast('ed25519 keypair generated');
+  }catch(e){ toast('keypair error: '+e.message, true); }
+}
+
 // ---------- wire up ----------
 $('g-addcap').onclick=()=>addCapRow();
 $('g-issue').onclick=issueGrant;
 $('c-run').onclick=()=>runCheck($('c-action').value,$('c-resource').value.trim(),$('c-subject').value.trim());
 document.querySelectorAll('[data-fill]').forEach(b=>b.onclick=()=>{
   const m=b.dataset.fill;
-  if(m==='in'){$('c-action').value='fs.write';$('c-resource').value='src/auth/login.ts';$('c-subject').value='builder';}
-  if(m==='out'){$('c-action').value='fs.write';$('c-resource').value='/etc/passwd';$('c-subject').value='builder';}
-  if(m==='subj'){$('c-action').value='fs.write';$('c-resource').value='src/auth/login.ts';$('c-subject').value='mallory';}
+  if(m==='in'){$('c-action').value='fs.write';$('c-resource').value='src/auth/login.ts';$('c-subject').value='builder';$('c-bytes').value='';$('c-method').value='';}
+  if(m==='out'){$('c-action').value='fs.write';$('c-resource').value='/etc/passwd';$('c-subject').value='builder';$('c-bytes').value='';$('c-method').value='';}
+  if(m==='subj'){$('c-action').value='fs.write';$('c-resource').value='src/auth/login.ts';$('c-subject').value='mallory';$('c-bytes').value='';$('c-method').value='';}
+  if(m==='con'){$('c-action').value='net.fetch';$('c-resource').value='api.github.com';$('c-subject').value='builder';$('c-bytes').value='5000';$('c-method').value='GET';}
   runCheck($('c-action').value,$('c-resource').value.trim(),$('c-subject').value.trim());
 });
 $('d-delegate').onclick=doDelegate;
@@ -980,6 +1218,18 @@ $('d-escalate').onclick=tryEscalate;
 $('r-demo').onclick=()=>{ if(firstBadgeId) doRevoke(firstBadgeId); else toast('nothing to revoke', true); };
 $('a-add').onclick=()=>addActRow();
 $('a-run').onclick=runAudit;
+// sign tab
+$('sg-grant').onchange=onSignGrantChange;
+$('sg-genkey').onclick=genKeypair;
+$('sg-sign').onclick=doSign;
+$('sg-verify').onclick=doVerify;
+$('sg-tamper').onchange=()=>{ renderSignPreimage(); if(signState.signature) doVerify(); };
+document.querySelectorAll('input[name=sg-scheme]').forEach(r=>r.onchange=()=>{
+  const s=signScheme();
+  $('sg-hmac-wrap').style.display = s==='hmac'?'':'none';
+  $('sg-ed-wrap').style.display   = s==='ed25519'?'':'none';
+  signState.signature=null; renderSigOut(); resetSignVerdict();
+});
 $('stat-verbs').onclick=()=>{ selectTab('grant'); document.getElementById('playground').scrollIntoView(); };
 $('copyInstall').addEventListener('click', async (e)=>{ try{ await navigator.clipboard.writeText('npx @avee1234/capgrant'); e.target.textContent='copied ✓'; setTimeout(()=>e.target.textContent='copy',1400);}catch{} });
 
@@ -1001,14 +1251,15 @@ if(!reduce){
 async function seed(){
   // issue form defaults
   addCapRow('fs.write','src/**');
-  addCapRow('net.fetch','api.github.com');
+  addCapRow('net.fetch','api.github.com',{max_bytes:4096,methods:['GET']});
   // audit defaults
   addActRow('fs.write','src/auth/login.ts','builder');
   addActRow('net.fetch','api.github.com','builder');
   addActRow('proc.exec','deploy.sh','builder');   // out of scope → violation
   // a believable starting grant on the registry
   const seedGrant = await makeGrant(
-    [{action:'fs.write',resource:'src/**'},{action:'net.fetch',resource:'api.github.com'}],
+    [{action:'fs.write',resource:'src/**'},
+     {action:'net.fetch',resource:'api.github.com',constraints:{max_bytes:4096,methods:['GET']}}],
     {issuer:'alice',subject:'builder',ttl_seconds:1800,created:CREATED,delegable:true});
   registry.push(seedGrant);
   firstBadgeId = seedGrant.id;
