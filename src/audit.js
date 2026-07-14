@@ -12,10 +12,15 @@ import { check } from "./check.js";
 
 // audit(actions, grants, opts) → { score, total, allowed, violations }
 //
-//   actions — array of `{ action, resource, subject, at? }`. `at` (ISO string),
-//             when present, is the instant the action ran — used as `now` for
-//             that action's `check`, so a grant that was live *then* counts even
-//             if it has since expired. Absent `at` falls back to `opts.now`.
+//   actions — array of `{ action, resource, subject, at?, bytes?, calls?,
+//             rate?, method? }`. `at` (ISO string), when present, is the instant
+//             the action ran — used as `now` for that action's `check`, so a
+//             grant that was live *then* counts even if it has since expired.
+//             Absent `at` falls back to `opts.now`. The optional `bytes` /
+//             `calls` / `rate` / `method` fields are the request context a
+//             constrained grant is scored against (so an in-scope action that
+//             blew its byte cap counts as a violation, with the constraint
+//             named in its `reason`).
 //   grants  — the resolved registry array (typically loaded with `expire: false`
 //             so wall-clock decay doesn't collapse grants the audit must still
 //             evaluate against each action's own `at`).
@@ -35,9 +40,13 @@ export function audit(actions, grants, opts = {}) {
     const parsed = a && a.at != null ? Date.parse(a.at) : NaN;
     const at = Number.isNaN(parsed) ? now : parsed;
     const subject = a ? a.subject : undefined;
+    const request = a
+      ? { bytes: a.bytes, calls: a.calls, rate: a.rate, method: a.method }
+      : undefined;
     const result = check(a ? a.action : undefined, a ? a.resource : undefined, grants, {
       subject,
       now: at,
+      request,
     });
     if (result.allowed) {
       allowed += 1;

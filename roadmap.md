@@ -21,13 +21,25 @@
 - git pre-commit adapter (advisory by default, `CAPGRANT_ENFORCE=1` to block).
 - CLI: `grant`, `check`, `list`, `revoke`, `delegate`, `audit`, `hook`, `validate`.
 
+## Shipped (v0.2)
+- Capability `constraints` semantics — the optional `constraints` object now has
+  real matching meaning in `capabilityCovers` / `check`: `max_bytes`, per-request
+  `max_calls` / `rate` budgets, a `methods` allow-list, and a `path_depth` cap. A
+  covered request that violates one is DENIED with the specific constraint named.
+  Stateless and advisory; fully backward-compatible (no `constraints` ⇒ v0.1
+  behavior). Delegation subset checks enforce TIGHTEN-only — a delegated cap may
+  only narrow a constraint, never loosen it (`constraintsSubsume`).
+- Signed grants (`src/sign.js`) — layered, optional tamper-evidence over the same
+  canonical pre-image the content-hash id is built from: detached-or-embedded
+  HMAC-SHA256 (`signHmac` / `verifyHmac`) and zero-config ed25519 (`generateKeypair`
+  / `signAsym` / `verifyAsym`), all `node:crypto`, zero-dep. Signers throw on a bad
+  key; verifiers never throw (a bad sig/key is simply unverified).
+
 ## Near-term (aligned — welcome)
 - More action namespaces documented (a small conventional vocabulary:
   `fs.* net.* proc.* git.* deploy.*`).
-- `constraints` on a capability (e.g. rate, byte cap) — the field exists; give it
-  matching semantics in `capabilityCovers`.
 - Harness adapters that read a session's actual tool calls and `audit` them.
-- Signed grants (detached HMAC/Ed25519) for tamper-evidence across trust domains.
+- CLI + git-hook surfacing for constraints and signature verification.
 
 ## Out of scope (for now)
 - Actual syscall/network enforcement or a sandbox runtime.

@@ -159,6 +159,99 @@ test("delegate throws on privilege escalation (resource outside parent)", () => 
   );
 });
 
+// --- delegate: constraints can only TIGHTEN ---------------------------------
+
+// A parent whose single capability carries a byte cap and a method allow-list.
+function constrainedParent(constraints, overrides = {}) {
+  return makeGrant([{ action: "net.fetch", resource: "api.github.com", constraints }], {
+    issuer: "alice",
+    subject: "agent-A",
+    ttl_seconds: 1800,
+    created: CREATED,
+    delegable: true,
+    ...overrides,
+  });
+}
+
+test("delegate allows a child that TIGHTENS a numeric constraint", () => {
+  const parent = constrainedParent({ max_bytes: 4096 });
+  const sub = delegate(
+    parent,
+    [{ action: "net.fetch", resource: "api.github.com", constraints: { max_bytes: 1024 } }],
+    SUB_META
+  );
+  assert.equal(sub.parent, parent.id);
+});
+
+test("delegate allows a child that MATCHES the parent constraint exactly", () => {
+  const parent = constrainedParent({ max_bytes: 4096 });
+  const sub = delegate(
+    parent,
+    [{ action: "net.fetch", resource: "api.github.com", constraints: { max_bytes: 4096 } }],
+    SUB_META
+  );
+  assert.equal(sub.parent, parent.id);
+});
+
+test("delegate THROWS when a child loosens a numeric constraint", () => {
+  const parent = constrainedParent({ max_bytes: 4096 });
+  assert.throws(
+    () =>
+      delegate(
+        parent,
+        [{ action: "net.fetch", resource: "api.github.com", constraints: { max_bytes: 8192 } }],
+        SUB_META
+      ),
+    /exceeds/
+  );
+});
+
+test("delegate THROWS when a child DROPS a constraint the parent set (implicitly unlimited)", () => {
+  const parent = constrainedParent({ max_bytes: 4096 });
+  assert.throws(
+    () =>
+      delegate(
+        parent,
+        [{ action: "net.fetch", resource: "api.github.com" }], // no constraints → looser
+        SUB_META
+      ),
+    /exceeds/
+  );
+});
+
+test("delegate allows a child methods set that is a SUBSET of the parent's", () => {
+  const parent = constrainedParent({ methods: ["GET", "POST"] });
+  const sub = delegate(
+    parent,
+    [{ action: "net.fetch", resource: "api.github.com", constraints: { methods: ["GET"] } }],
+    SUB_META
+  );
+  assert.equal(sub.parent, parent.id);
+});
+
+test("delegate THROWS when a child methods set escapes the parent's", () => {
+  const parent = constrainedParent({ methods: ["GET"] });
+  assert.throws(
+    () =>
+      delegate(
+        parent,
+        [{ action: "net.fetch", resource: "api.github.com", constraints: { methods: ["GET", "DELETE"] } }],
+        SUB_META
+      ),
+    /exceeds/
+  );
+});
+
+test("delegate lets a child ADD a constraint on a dimension the parent left open", () => {
+  const parent = delegableParent(); // unconstrained fs.write on src/**
+  const sub = delegate(
+    parent,
+    [{ action: "fs.write", resource: "src/auth/**", constraints: { max_bytes: 512 } }],
+    SUB_META
+  );
+  assert.equal(sub.parent, parent.id);
+});
+
 test("delegate throws when the sub-grant would outlive the parent", () => {
   const parent = delegableParent({ ttl_seconds: 600 }); // expires at +10m
   assert.throws(

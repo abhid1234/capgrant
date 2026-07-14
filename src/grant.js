@@ -10,7 +10,7 @@
 
 import { computeRecordId } from "./registry.js";
 import { validateCapability } from "./schema.js";
-import { capabilityCovers } from "./capability.js";
+import { capabilityCoverage, constraintsSubsume } from "./capability.js";
 
 function fail(msg) {
   throw new Error(`capgrant: ${msg}`);
@@ -103,8 +103,10 @@ export function makeGrant(capabilities, meta = {}) {
 // is violated:
 //   1. the parent must be `delegable`;
 //   2. NO PRIVILEGE ESCALATION — every delegated capability must be COVERED by
-//      some capability the parent holds (same `capabilityCovers` test `check`
-//      uses, so a delegate can only ever narrow, never widen, authority);
+//      some capability the parent holds (its action+resource axes must fall
+//      inside a parent cap) AND, if that parent cap carries constraints, the
+//      delegated cap may only TIGHTEN them, never loosen (`constraintsSubsume`),
+//      so a delegate can only ever narrow, never widen, authority;
 //   3. the sub-grant must not outlive the parent — its `expires` must be ≤ the
 //      parent's `expires`.
 export function delegate(parentGrant, capabilities, meta = {}) {
@@ -117,10 +119,19 @@ export function delegate(parentGrant, capabilities, meta = {}) {
   requireCapabilities(capabilities);
 
   // 2. Subset check: each requested capability must fall inside some parent
-  //    capability's authority.
+  //    capability's authority — its action+resource axes must be covered by a
+  //    parent cap AND (when that parent cap constrains a dimension) the child's
+  //    constraints must only tighten it. We test the axes with `capabilityCoverage`
+  //    (not `capabilityCovers`) so the parent's constraints are NOT evaluated as
+  //    if the child's resource pattern were a concrete request — constraint
+  //    containment is a separate, structural `constraintsSubsume` check.
   const parentCaps = Array.isArray(parentGrant.capabilities) ? parentGrant.capabilities : [];
   capabilities.forEach((cap, i) => {
-    const covered = parentCaps.some((pc) => capabilityCovers(pc, cap.action, cap.resource));
+    const covered = parentCaps.some(
+      (pc) =>
+        capabilityCoverage(pc, cap.action, cap.resource).axes &&
+        constraintsSubsume(pc.constraints, cap.constraints)
+    );
     if (!covered) {
       fail(
         `capabilities[${i}] (${cap.action} on ${cap.resource}) exceeds the parent grant's authority`
