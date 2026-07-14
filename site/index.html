@@ -3,8 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>capgrant — the access checkpoint, live in your browser</title>
-<meta name="description" content="capgrant: the open format for scoped, expiring agent capability grants. Issue a grant, check the gate, delegate a subset, watch a revocation cascade — running the real library client-side.">
+<title>capgrant — scoped, expiring capability grants for agent fleets</title>
+<meta name="description" content="capgrant is the open format for scoped, expiring agent capability grants. Issue a grant, check the gate, delegate a strict subset, watch a revocation cascade, audit a batch — running the real, zero-dependency library live in your browser.">
+<link rel="canonical" href="https://capgrant.vercel.app/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://capgrant.vercel.app/">
+<meta property="og:title" content="capgrant — the access checkpoint for agent fleets">
+<meta property="og:description" content="Your agents run with ambient root. capgrant hands them a scoped, expiring keycard instead — grant · check · delegate · revoke · audit, zero dependencies. Play with the real library live.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="capgrant — scoped, expiring capability grants for agent fleets">
+<meta name="twitter:description" content="An open authorization format for AI agent fleets. Least privilege that delegates and cascades. Zero deps. Runs live in your browser.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%91%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -17,41 +25,77 @@
     --amber:#ffb454;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:radial-gradient(1200px 720px at 50% -12%,#1c2230,var(--bg) 62%);color:var(--ink);
+  html{scroll-behavior:smooth;}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto;} *{animation:none !important;transition:none !important;} }
+  body{margin:0;background:radial-gradient(1200px 720px at 50% -12%,#1c2230,var(--bg) 62%) no-repeat,var(--bg);color:var(--ink);
     font-family:"JetBrains Mono",ui-monospace,monospace;min-height:100vh;-webkit-font-smoothing:antialiased;}
   .serif{font-family:"Fraunces",Georgia,serif;}
-  .wrap{max-width:1120px;margin:0 auto;padding:40px 22px 96px;}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 22px;}
+  a{color:var(--verm);text-decoration:none;} a:hover{text-decoration:underline;}
+  code{font-family:"JetBrains Mono",monospace;font-size:.92em;color:var(--ink);background:#0f131a;border:1px solid var(--line);border-radius:5px;padding:1px 5px;}
+  ::selection{background:var(--verm);color:#12151b;}
 
-  /* header */
-  header{display:flex;align-items:center;gap:15px;flex-wrap:wrap;}
-  .mk{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,var(--verm),var(--verm2));
-    display:flex;align-items:center;justify-content:center;box-shadow:0 8px 26px -10px var(--verm2);flex:0 0 auto;}
-  .mk svg{width:26px;height:26px;color:#12151b;}
-  h1{font-size:29px;font-weight:700;letter-spacing:-.5px;margin:0;}
-  .tag{font-size:11.5px;color:var(--faint);letter-spacing:2px;text-transform:uppercase;margin-top:3px;}
-  .tag .dotlive{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--good);margin-right:6px;
-    box-shadow:0 0 0 0 var(--good);animation:pulse 2s infinite;vertical-align:middle;}
+  /* ---------- sticky nav ---------- */
+  header.site{position:sticky;top:0;z-index:40;backdrop-filter:blur(10px);background:rgba(18,21,27,.82);border-bottom:1px solid var(--line);}
+  .nav{max-width:1120px;margin:0 auto;padding:0 22px;height:60px;display:flex;align-items:center;gap:18px;}
+  .nav .wm{display:flex;align-items:center;gap:11px;}
+  .nav .mk{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--verm),var(--verm2));
+    display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px -8px var(--verm2);flex:0 0 auto;}
+  .nav .mk svg{width:19px;height:19px;color:#12151b;}
+  .nav .wmname{font-family:"Fraunces",serif;font-size:18px;font-weight:600;letter-spacing:-.3px;}
+  .nav .sp{flex:1;}
+  .nav a.lnk{color:var(--ink2);font-size:13px;font-weight:500;}
+  .nav a.lnk:hover{color:var(--ink);text-decoration:none;}
+  @media(max-width:760px){.nav a.lnk.hideM{display:none;}}
+
+  /* ---------- hero ---------- */
+  .hero{padding:64px 0 8px;}
+  .eyebrow{font-size:12px;letter-spacing:2.4px;text-transform:uppercase;color:var(--verm);margin-bottom:18px;
+    display:flex;align-items:center;gap:9px;}
+  .eyebrow .dotlive{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--good);
+    box-shadow:0 0 0 0 var(--good);animation:pulse 2s infinite;}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(61,220,151,.5)}70%{box-shadow:0 0 0 7px rgba(61,220,151,0)}100%{box-shadow:0 0 0 0 rgba(61,220,151,0)}}
-  .top-links{margin-left:auto;display:flex;gap:16px;font-size:13px;}
-  .top-links a{color:var(--verm);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:1px;}
-  .top-links a:hover{border-color:var(--verm);}
-  .lead{color:var(--ink2);font-size:16.5px;line-height:1.6;margin:24px 0 6px;max-width:860px;}
-  .lead b{color:var(--ink);font-weight:600;} .lead .v{color:var(--verm);font-weight:600;}
-  .lead .g{color:var(--good);font-weight:600;} .lead .r{color:var(--bad);font-weight:600;}
+  .hero h1{font-family:"Fraunces",serif;font-size:clamp(34px,6.2vw,58px);font-weight:700;letter-spacing:-1.2px;line-height:1.04;margin:0;}
+  .hero h1 .v{color:var(--verm);} .hero h1 .g{color:var(--good);}
+  .lede{color:var(--ink2);font-size:clamp(16px,2.1vw,18.5px);line-height:1.62;margin:24px 0 0;max-width:760px;}
+  .lede b{color:var(--ink);font-weight:600;} .lede .v{color:var(--verm);font-weight:600;}
+  .lede .g{color:var(--good);font-weight:600;} .lede .r{color:var(--bad);font-weight:600;}
+  .scope{font-size:.95em;white-space:nowrap;}
+  .scope .b{color:var(--faint);} .scope .a{color:var(--ink);font-weight:600;} .scope .r{color:var(--verm);font-weight:600;}
 
-  /* section scaffolding */
-  section{margin-top:34px;}
-  .shead{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
-  .snum{font-size:12px;color:var(--verm);font-weight:700;letter-spacing:2px;}
-  .stitle{font-family:"Fraunces",serif;font-size:22px;font-weight:600;letter-spacing:-.3px;}
-  .ssub{color:var(--faint);font-size:13px;margin-left:auto;}
+  .cta{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-top:30px;}
+  .install{display:inline-flex;align-items:center;gap:12px;background:#0f131a;border:1px solid var(--line2);border-radius:11px;
+    padding:10px 12px 10px 15px;font-size:13.5px;}
+  .install .pfx{color:var(--faint);} .install .cmd{color:var(--ink);}
+  .install button{background:var(--line);border:none;color:var(--ink2);border-radius:6px;padding:6px 10px;font-size:11px;
+    cursor:pointer;font-family:"JetBrains Mono",monospace;font-weight:600;}
+  .install button:hover{color:var(--ink);}
+
+  .statband{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);
+    border-radius:16px;overflow:hidden;margin-top:50px;}
+  .statband .cell{background:var(--panel);padding:22px 24px;}
+  .statband .cell.click{cursor:pointer;transition:background .15s;} .statband .cell.click:hover{background:var(--bg2);}
+  .statband .n{font-family:"Fraunces",serif;font-size:40px;font-weight:600;letter-spacing:-1.5px;line-height:1;}
+  .statband .n.v{color:var(--verm);} .statband .n.g{color:var(--good);}
+  .statband .k{color:var(--ink2);font-size:13px;margin-top:9px;line-height:1.5;}
+  .statband .k u{text-decoration-color:var(--verm);text-underline-offset:2px;}
+  @media(max-width:720px){.statband{grid-template-columns:1fr}}
+
+  /* ---------- section scaffolding ---------- */
+  section{padding:58px 0;border-top:1px solid var(--line);}
+  section.hero{border-top:none;}
+  .kicker{font-size:12px;letter-spacing:2.2px;text-transform:uppercase;color:var(--faint);margin-bottom:13px;}
+  .sec-h{font-family:"Fraunces",serif;font-size:clamp(24px,4vw,34px);font-weight:600;letter-spacing:-.6px;line-height:1.1;margin:0;}
+  .sec-h em{font-style:italic;color:var(--verm);}
+  .sec-sub{color:var(--ink2);max-width:740px;margin:15px 0 0;font-size:15.5px;line-height:1.62;}
+  .sec-sub b{color:var(--ink);}
+
+  /* ---------- shared component: cards, inputs, buttons ---------- */
   .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;}
   @media(max-width:840px){.grid2{grid-template-columns:1fr}}
-
   .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px 24px;}
   .card.dim{background:var(--panel2);}
   .lbl{font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:7px;display:block;}
-
   input,select,textarea{font-family:"JetBrains Mono",monospace;font-size:14px;background:#0f131a;color:var(--ink);
     border:1px solid var(--line2);border-radius:9px;padding:10px 12px;width:100%;outline:none;transition:border-color .15s;}
   input:focus,select:focus,textarea:focus{border-color:var(--verm);}
@@ -59,7 +103,6 @@
     background-repeat:no-repeat;background-position:right 11px center;padding-right:30px;}
   label.ck{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:14px;color:var(--ink2);user-select:none;}
   label.ck input{width:auto;accent-color:var(--verm);width:17px;height:17px;}
-
   .row{display:flex;gap:10px;align-items:center;}
   .row.wrap{flex-wrap:wrap;}
   .field{margin-bottom:14px;} .field:last-child{margin-bottom:0;}
@@ -67,7 +110,6 @@
   .caprow .x{background:none;border:1px solid var(--line2);color:var(--faint);border-radius:8px;width:34px;height:38px;
     cursor:pointer;font-size:16px;flex:0 0 auto;padding:0;}
   .caprow .x:hover{color:var(--bad);border-color:var(--bad);}
-
   .btn{font-family:"JetBrains Mono",monospace;font-weight:600;font-size:14.5px;border:none;border-radius:10px;
     padding:11px 20px;cursor:pointer;transition:transform .08s,filter .15s;letter-spacing:.2px;}
   .btn:active{transform:translateY(1px);}
@@ -78,17 +120,28 @@
   .btn.sm{padding:8px 13px;font-size:12.5px;}
   .btn.link{background:none;border:none;color:var(--verm);padding:6px 2px;font-size:13px;cursor:pointer;}
 
-  /* scope bracket */
-  .scope{font-size:14px;white-space:nowrap;}
-  .scope .b{color:var(--faint);} .scope .a{color:var(--ink);font-weight:600;} .scope .r{color:var(--verm);font-weight:600;}
+  /* ---------- tabbed playground ---------- */
+  .pg{background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin-top:24px;}
+  .tabs{display:flex;gap:3px;padding:8px 8px 0;background:var(--panel2);border-bottom:1px solid var(--line);flex-wrap:wrap;}
+  .tab{appearance:none;background:transparent;border:none;color:var(--ink2);font-family:"JetBrains Mono",monospace;
+    font-weight:600;font-size:13.5px;padding:11px 16px;cursor:pointer;border-radius:9px 9px 0 0;position:relative;letter-spacing:.2px;}
+  .tab .num{font-size:11px;color:var(--faint);margin-right:7px;}
+  .tab:hover{color:var(--ink);}
+  .tab[aria-selected="true"]{color:var(--ink);background:var(--panel);}
+  .tab[aria-selected="true"]::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:2px;background:var(--verm);}
+  .panel{padding:24px;display:none;}
+  .panel.on{display:block;animation:fade .25s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .pdesc{color:var(--ink2);font-size:14px;margin:0 0 20px;line-height:1.62;max-width:840px;}
+  .pdesc code{font-size:.9em;}
+  .pdesc .v{color:var(--verm);font-weight:600;} .pdesc .g{color:var(--good);font-weight:600;} .pdesc .r{color:var(--bad);font-weight:600;}
 
   /* laminated badge */
-  #badges{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:16px;}
+  #badges{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:16px;}
   .badge{position:relative;background:linear-gradient(180deg,#20262f,#1a1f28);border:1px solid var(--line2);
     border-radius:14px;overflow:hidden;box-shadow:0 16px 34px -24px #000;animation:drop .4s ease;}
   @keyframes drop{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
-  .badge .hband{background:linear-gradient(90deg,var(--verm2),var(--verm));padding:9px 14px;display:flex;
-    align-items:center;gap:8px;}
+  .badge .hband{background:linear-gradient(90deg,var(--verm2),var(--verm));padding:9px 14px;display:flex;align-items:center;gap:8px;}
   .badge .hband .bt{font-size:10.5px;letter-spacing:2px;font-weight:700;color:#12151b;}
   .badge .hband .lan{width:26px;height:9px;border-radius:5px;background:rgba(18,21,27,.35);margin-left:auto;}
   .badge .body{padding:13px 15px 15px;}
@@ -106,33 +159,27 @@
   .badge .foot .del{margin-left:auto;display:flex;align-items:center;gap:4px;}
   .badge .foot .del.yes{color:var(--good);} .badge .foot .del.no{color:var(--faint);}
   .badge .foot svg{width:14px;height:14px;}
-  .badge .rev{background:var(--badsoft);border-top:1px solid var(--bad2);color:var(--bad);font-size:11px;
-    padding:7px 15px;}
+  .badge .rev{background:var(--badsoft);border-top:1px solid var(--bad2);color:var(--bad);font-size:11px;padding:7px 15px;}
   .badge .actions{padding:0 15px 14px;}
   .badge.revoked{filter:saturate(.55);opacity:.92;} .badge.revoked .hband{background:linear-gradient(90deg,#4a2a26,#5c322c);}
   .badge.expired{filter:saturate(.5);opacity:.82;} .badge.expired .hband{background:linear-gradient(90deg,#5a4a2a,#6b5730);}
-
-  /* angled stamp */
   .stamp{position:absolute;top:44px;right:10px;transform:rotate(-14deg);border:2.6px solid;border-radius:8px;
-    padding:3px 10px;font-size:15px;font-weight:700;letter-spacing:2px;pointer-events:none;
-    background:rgba(18,21,27,.35);}
+    padding:3px 10px;font-size:15px;font-weight:700;letter-spacing:2px;pointer-events:none;background:rgba(18,21,27,.35);}
   .stamp.granted{color:var(--good);border-color:var(--good);}
   .stamp.revoked{color:var(--bad);border-color:var(--bad);}
   .stamp.expired{color:var(--amber);border-color:var(--amber);}
 
   /* JSONL terminal */
   .jsonl{background:#0c0f14;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px;}
-  .jsonl .jh{font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:var(--faint);margin-bottom:9px;
-    display:flex;gap:8px;align-items:center;}
+  .jsonl .jh{font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:var(--faint);margin-bottom:9px;display:flex;gap:8px;align-items:center;}
   .jsonl pre{margin:0;font-size:11.5px;line-height:1.7;color:#8b93a1;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto;}
   .jsonl .k{color:var(--verm);} .jsonl .s{color:var(--good);} .jsonl .p{color:#8b93a1;}
   .jsonl .empty{color:var(--faint);}
 
-  /* the gate */
+  /* the gate / turnstile */
   .gatewrap{display:grid;grid-template-columns:290px 1fr;gap:24px;align-items:center;}
   @media(max-width:720px){.gatewrap{grid-template-columns:1fr}}
-  .stage{position:relative;height:190px;background:linear-gradient(180deg,#0f131a,#151a22);border:1px solid var(--line);
-    border-radius:14px;overflow:hidden;}
+  .stage{position:relative;height:190px;background:linear-gradient(180deg,#0f131a,#151a22);border:1px solid var(--line);border-radius:14px;overflow:hidden;}
   .stage .road{position:absolute;left:0;right:0;top:118px;height:4px;background:repeating-linear-gradient(90deg,#2b3340 0 14px,transparent 14px 28px);}
   .stage .post{position:absolute;left:132px;bottom:34px;width:12px;height:86px;border-radius:5px;background:#39424f;}
   .stage .hub{position:absolute;left:127px;bottom:112px;width:22px;height:22px;border-radius:50%;background:#5f6a7b;border:2px solid #39424f;}
@@ -148,15 +195,14 @@
   .stage.deny .glow{opacity:1;background:radial-gradient(300px 160px at 40% 60%,rgba(255,92,77,.18),transparent 70%);}
   .stage .verd{position:absolute;top:12px;left:16px;font-size:13px;font-weight:700;letter-spacing:2px;color:var(--faint);}
   .stage.allow .verd{color:var(--good);} .stage.deny .verd{color:var(--bad);}
-
-  .verdict{border-radius:12px;padding:16px 18px;border:1px solid var(--line);background:#0f131a;min-height:92px;
-    display:flex;flex-direction:column;justify-content:center;}
+  .verdict{border-radius:12px;padding:16px 18px;border:1px solid var(--line);background:#0f131a;min-height:92px;display:flex;flex-direction:column;justify-content:center;}
   .verdict .big{font-size:22px;font-weight:700;font-family:"Fraunces",serif;display:flex;align-items:center;gap:10px;}
   .verdict .reason{font-size:13px;color:var(--ink2);margin-top:8px;line-height:1.5;word-break:break-word;}
   .verdict.allow{border-color:var(--good2);background:var(--goodsoft);} .verdict.allow .big{color:var(--good);}
   .verdict.deny{border-color:var(--bad2);background:var(--badsoft);} .verdict.deny .big{color:var(--bad);}
   .verdict svg{width:22px;height:22px;}
   .quickfills{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+  .hint-h{font-family:"Fraunces",serif;font-size:17px;font-weight:600;margin:26px 0 12px;}
 
   /* hierarchy demo */
   .hgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
@@ -172,8 +218,7 @@
 
   /* delegation tree */
   .tree{display:flex;flex-direction:column;align-items:center;gap:0;padding:6px 0;}
-  .tnode{width:100%;max-width:440px;background:#0f131a;border:1px solid var(--line2);border-radius:12px;padding:13px 16px;
-    transition:.3s;}
+  .tnode{width:100%;max-width:440px;background:#0f131a;border:1px solid var(--line2);border-radius:12px;padding:13px 16px;transition:.3s;}
   .tnode .tt{font-size:11px;letter-spacing:1.5px;color:var(--faint);font-weight:600;margin-bottom:6px;display:flex;gap:8px;align-items:center;}
   .tnode .tt .st{margin-left:auto;font-size:10px;padding:2px 7px;border-radius:5px;}
   .tnode .tt .st.active{color:var(--good);background:var(--goodsoft);} .tnode .tt .st.revoked{color:var(--bad);background:var(--badsoft);}
@@ -183,10 +228,22 @@
   .connector.revoked{background:var(--bad2);}
   .connector .cl{position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--faint);white-space:nowrap;}
   .connector.revoked .cl{color:var(--bad);}
-  .esc-out{margin-top:14px;font-size:13px;min-height:20px;}
+  .esc-out{margin-top:14px;font-size:13px;min-height:20px;line-height:1.5;}
   .esc-out.blocked{color:var(--bad);} .esc-out.ok{color:var(--good);}
   .esc-out svg{width:15px;height:15px;vertical-align:-2px;margin-right:3px;}
   .esc-out .scope{display:inline;} .esc-out .mono{background:#0f131a;border:1px solid var(--line);border-radius:6px;padding:1px 6px;}
+
+  /* revoke list */
+  .revrow{display:flex;align-items:center;gap:12px;background:#0f131a;border:1px solid var(--line);border-radius:11px;padding:11px 14px;margin-bottom:9px;transition:.3s;}
+  .revrow.revoked{border-color:var(--bad2);background:var(--badsoft);opacity:.92;}
+  .revrow.expired{opacity:.72;}
+  .revrow .rl{flex:1;min-width:0;}
+  .revrow .rl .who{font-family:"Fraunces",serif;font-size:15px;font-weight:600;}
+  .revrow .rl .sc{font-size:12px;color:var(--ink2);margin-top:3px;word-break:break-word;}
+  .revrow .stt{font-size:10px;letter-spacing:1.5px;font-weight:700;padding:3px 9px;border-radius:6px;flex:0 0 auto;}
+  .revrow .stt.active{color:var(--good);background:var(--goodsoft);}
+  .revrow .stt.revoked{color:var(--bad);background:var(--badsoft);}
+  .revrow .stt.expired{color:var(--amber);background:rgba(255,180,84,.12);}
 
   /* audit */
   .auditgrid{display:grid;grid-template-columns:1fr 300px;gap:20px;}
@@ -205,199 +262,374 @@
   .viol .vi .rz{color:var(--faint);display:block;margin-top:2px;}
   .allclear{color:var(--good);font-size:13px;margin-top:14px;border-top:1px solid var(--line);padding-top:12px;}
 
-  .foot{color:var(--faint);font-size:12.5px;margin-top:44px;line-height:1.9;border-top:1px solid var(--line);padding-top:22px;}
-  .foot a{color:var(--verm);text-decoration:none;} .foot .mono{color:var(--ink2);}
+  /* quickstart */
+  .qs{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:26px;}
+  @media(max-width:820px){.qs{grid-template-columns:1fr}}
+  .qcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;}
+  .qcard h4{font-family:"Fraunces",serif;font-size:16px;margin:0 0 5px;font-weight:600;}
+  .qcard .cap{color:var(--ink2);font-size:13px;margin:0 0 14px;line-height:1.55;flex:1;}
+  .qcard pre{background:#0c0f14;border:1px solid var(--line);border-radius:9px;padding:12px 13px;margin:0;overflow-x:auto;
+    font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.7;color:var(--ink);}
+  .qcard pre .c{color:var(--faint);} .qcard pre .k{color:var(--verm);} .qcard pre .s{color:var(--good);}
+
+  /* source viewer */
+  details.src{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-top:12px;overflow:hidden;}
+  details.src>summary{cursor:pointer;padding:15px 18px;font-weight:600;font-size:14px;list-style:none;display:flex;align-items:center;gap:10px;}
+  details.src>summary::-webkit-details-marker{display:none;}
+  details.src>summary .file{color:var(--ink);} details.src>summary .fn{color:var(--verm);font-size:12.5px;}
+  details.src>summary .chev{margin-left:auto;color:var(--faint);transition:.2s;}
+  details.src[open]>summary .chev{transform:rotate(90deg);}
+  details.src pre{margin:0;padding:16px 18px;border-top:1px solid var(--line);background:#0c0f14;overflow:auto;
+    font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.62;color:var(--ink2);max-height:460px;}
+
+  /* feature grid */
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:26px;}
+  @media(max-width:820px){.fgrid{grid-template-columns:1fr 1fr}}
+  @media(max-width:520px){.fgrid{grid-template-columns:1fr}}
+  .feat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;}
+  .feat .cmd{color:var(--verm);font-size:12.5px;margin-bottom:9px;}
+  .feat h4{font-family:"Fraunces",serif;font-size:16px;margin:0 0 6px;font-weight:600;}
+  .feat p{margin:0;color:var(--ink2);font-size:13px;line-height:1.55;}
+
+  /* meta */
+  .metacard{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--verm);border-radius:14px;
+    padding:22px 26px;margin-top:24px;}
+  .metacard p{margin:0;color:var(--ink2);font-size:15px;line-height:1.65;}
+  .metacard p b{color:var(--ink);}
+
+  /* footer */
+  footer{border-top:1px solid var(--line);padding:38px 0 66px;color:var(--ink2);font-size:13.5px;}
+  footer .frow{display:flex;flex-wrap:wrap;gap:18px;align-items:center;}
+  footer .wm{display:flex;align-items:center;gap:10px;}
+  footer .mk{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--verm),var(--verm2));display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+  footer .mk svg{width:17px;height:17px;color:#12151b;}
+  footer .wmname{font-family:"Fraunces",serif;font-size:16px;font-weight:600;}
+  footer .sp{flex:1;}
+  footer a{color:var(--ink2);} footer a:hover{color:var(--verm);text-decoration:none;}
+  footer .badge2{color:var(--faint);font-size:12px;}
+  .fnote{color:var(--faint);font-size:12px;margin-top:18px;line-height:1.7;}
+  .fnote .mono{color:var(--ink2);}
+
   .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#0f131a;
     border:1px solid var(--line2);color:var(--ink);padding:11px 18px;border-radius:10px;font-size:13px;opacity:0;
-    transition:.25s;pointer-events:none;z-index:20;box-shadow:0 12px 30px -12px #000;}
+    transition:.25s;pointer-events:none;z-index:60;box-shadow:0 12px 30px -12px #000;}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   .toast.err{border-color:var(--bad2);color:var(--bad);}
 </style>
 </head>
 <body>
-<div class="wrap">
 
-  <header>
-    <div class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="4.4"/><path d="M11 11l8 8M16 16l2.5-2.5M18.5 18.5l2-2"/></svg></div>
-    <div>
-      <h1>capgrant</h1>
-      <div class="tag"><span class="dotlive"></span>live · the real library, in your browser</div>
-    </div>
-    <div class="top-links">
-      <a href="https://github.com/abhid1234/capgrant">github</a>
-      <a href="https://www.npmjs.com/package/@avee1234/capgrant">npm</a>
-    </div>
-  </header>
-
-  <p class="lead">A fleet of agents runs with too much ambient authority. <b>capgrant</b> is the access checkpoint: an issuer hands an agent a scoped, expiring <b>capability grant</b> — <span class="scope"><span class="b">[ </span><span class="a">fs.write</span><span class="b"> : </span><span class="r">src/**</span><span class="b"> ]</span> for the next 30 minutes — and before the agent acts, it <span class="v">check</span>s the gate. Below is a working console: issue grants, run the real <span class="v">check()</span> through the turnstile, <span class="v">delegate</span> a strict subset, try to escalate and get <span class="r">blocked</span>, <span class="r">revoke</span> a parent and watch the cascade, then <span class="v">audit</span> a batch. Every decision is the <b>real, unmodified library</b> running client-side.</p>
-
-  <!-- ============ 1 · ISSUE + REGISTRY ============ -->
-  <section>
-    <div class="shead"><span class="snum">01</span><span class="stitle">Issue a grant</span><span class="ssub">who · may do what · over what · until when</span></div>
-    <div class="grid2">
-      <div class="card">
-        <div class="field">
-          <span class="lbl">subject &nbsp;·&nbsp; issuer</span>
-          <div class="row">
-            <input id="g-subject" value="builder" placeholder="agent id" aria-label="subject">
-            <input id="g-issuer" value="alice" placeholder="issuer" aria-label="issuer">
-          </div>
-        </div>
-        <div class="field">
-          <span class="lbl">capabilities &nbsp;·&nbsp; action : resource</span>
-          <div id="g-caps"></div>
-          <button class="btn link" id="g-addcap">+ add capability</button>
-        </div>
-        <div class="field row wrap">
-          <div style="flex:1;min-width:120px">
-            <span class="lbl">TTL</span>
-            <input id="g-ttl" value="30m" placeholder="30m · 2h · 1d" aria-label="ttl">
-          </div>
-          <label class="ck" style="margin-top:20px"><input type="checkbox" id="g-deleg" checked> delegable</label>
-        </div>
-        <div class="field"><button class="btn pri" id="g-issue" style="width:100%">＋ issue grant → registry</button></div>
-      </div>
-
-      <div class="card dim">
-        <span class="lbl">the registry &nbsp;·&nbsp; laminated badges <span id="reg-count" style="color:var(--faint)"></span></span>
-        <div id="badges"></div>
-        <div class="jsonl">
-          <div class="jh">.capgrant/registry.jsonl · append-only · content-hash id</div>
-          <pre id="jsonl" class="empty">— empty —</pre>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ 2 · CHECK GATE ============ -->
-  <section>
-    <div class="shead"><span class="snum">02</span><span class="stitle">Check the gate</span><span class="ssub">the pre-action turnstile — only your own live grant opens it</span></div>
-    <div class="card">
-      <div class="row wrap" style="gap:12px;margin-bottom:16px">
-        <div style="flex:1;min-width:130px"><span class="lbl">action</span>
-          <select id="c-action">
-            <option>fs.write</option><option>fs.read</option><option>fs</option>
-            <option>net.fetch</option><option>proc.exec</option><option>*</option>
-          </select></div>
-        <div style="flex:2;min-width:170px"><span class="lbl">resource</span><input id="c-resource" value="src/auth/login.ts"></div>
-        <div style="flex:1;min-width:120px"><span class="lbl">subject</span><input id="c-subject" value="builder" list="subjects"></div>
-        <button class="btn pri" id="c-run" style="margin-top:19px">check →</button>
-      </div>
-      <div class="gatewrap">
-        <div class="stage" id="stage">
-          <div class="glow"></div>
-          <div class="verd" id="stage-verd">GATE</div>
-          <div class="road"></div>
-          <div class="hub"></div>
-          <div class="arm" id="arm"><i></i></div>
-          <div class="post"></div>
-        </div>
-        <div>
-          <div class="verdict" id="verdict"><div class="big" style="color:var(--faint)">awaiting check…</div><div class="reason">Pick an action, resource and subject, then run the gate. The barrier lifts green on ALLOW, drops red on DENY — with the real reason.</div></div>
-          <div class="quickfills">
-            <button class="btn ghost sm" data-fill="in">✓ in-scope example</button>
-            <button class="btn ghost sm" data-fill="out">✗ fs.write /etc/passwd</button>
-            <button class="btn ghost sm" data-fill="subj">✗ wrong subject</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ 3 · HIERARCHY ============ -->
-  <section>
-    <div class="shead"><span class="snum">03</span><span class="stitle">Action hierarchy</span><span class="ssub">implication flows downward only — broader covers narrower, never the reverse</span></div>
-    <div class="card">
-      <div class="hgrid">
-        <div class="hrow">
-          <div class="grantline">grant &nbsp;<span class="scope"><span class="b">[ </span><span class="a">fs</span><span class="b"> : </span><span class="r">src/**</span><span class="b"> ]</span></div>
-          <div class="req">request &nbsp;<span class="scope"><span class="a">fs.write</span> &nbsp;<span class="b">src/app.ts</span></span></div>
-          <div id="h-allow"><span class="hpill a">running…</span></div>
-          <div class="hnote"><b style="color:var(--ink2)">fs</b> is a prefix of <b style="color:var(--ink2)">fs.write</b> → the broad grant covers the narrow request.</div>
-        </div>
-        <div class="hrow">
-          <div class="grantline">grant &nbsp;<span class="scope"><span class="b">[ </span><span class="a">fs.write</span><span class="b"> : </span><span class="r">src/**</span><span class="b"> ]</span></div>
-          <div class="req">request &nbsp;<span class="scope"><span class="a">fs</span> &nbsp;<span class="b">src/app.ts</span></span></div>
-          <div id="h-deny"><span class="hpill d">running…</span></div>
-          <div class="hnote"><b style="color:var(--ink2)">fs.write</b> is narrower than <b style="color:var(--ink2)">fs</b> → it can never grant the broader authority.</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ 4 · DELEGATE ============ -->
-  <section>
-    <div class="shead"><span class="snum">04</span><span class="stitle">Delegate a subset</span><span class="ssub">a delegable grant mints a strictly narrower child — no escalation, can't outlive the parent</span></div>
-    <div class="grid2">
-      <div class="card">
-        <div class="field">
-          <span class="lbl">parent grant &nbsp;(delegable + active)</span>
-          <select id="d-parent"></select>
-        </div>
-        <div class="field">
-          <span class="lbl">child subject</span>
-          <input id="d-subject" value="reviewer">
-        </div>
-        <div class="field">
-          <span class="lbl">child capability &nbsp;·&nbsp; action : resource</span>
-          <div class="row">
-            <select id="d-action" style="flex:1">
-              <option>fs.write</option><option>fs.read</option><option>net.fetch</option><option>proc.exec</option>
-            </select>
-            <input id="d-resource" value="src/auth/**" style="flex:1.4">
-          </div>
-        </div>
-        <div class="field row wrap" style="gap:10px">
-          <button class="btn pri" id="d-delegate">⊂ delegate subset</button>
-          <button class="btn ghost" id="d-escalate">try to escalate →</button>
-        </div>
-        <div class="esc-out" id="esc-out"></div>
-      </div>
-      <div class="card dim">
-        <span class="lbl">delegation tree</span>
-        <div class="tree" id="tree"><div style="color:var(--faint);font-size:13px;padding:14px 0">No delegations yet. Delegate a subset from the parent grant to draw the chain.</div></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ 5 · REVOKE + CASCADE ============ -->
-  <section>
-    <div class="shead"><span class="snum">05</span><span class="stitle">Revoke &amp; cascade</span><span class="ssub">pull the parent and every grant derived from it goes with it — resolved at read time</span></div>
-    <div class="card">
-      <p style="color:var(--ink2);font-size:14px;margin:0 0 14px;line-height:1.55">Use the <b style="color:var(--ink)">revoke</b> button on any badge in the registry above. Revoking a <b style="color:var(--verm)">parent</b> grant appends one revocation record — and the real <span class="scope"><span class="a">resolveRecords</span></span> cascade stamps every delegated <b style="color:var(--bad)">child</b> REVOKED too, to a fixed point. Watch the badges and the delegation tree redden together.</p>
-      <button class="btn ghost sm" id="r-demo">▸ revoke the parent grant (cascade demo)</button>
-    </div>
-  </section>
-
-  <!-- ============ 6 · AUDIT ============ -->
-  <section>
-    <div class="shead"><span class="snum">06</span><span class="stitle">Audit a batch</span><span class="ssub">replay what the fleet did — did every action stay in scope?</span></div>
-    <div class="card">
-      <div class="auditgrid">
-        <div>
-          <div class="actrow head"><div>action</div><div>resource</div><div>subject</div><div></div></div>
-          <div id="a-rows"></div>
-          <button class="btn link" id="a-add">+ add action</button>
-        </div>
-        <div>
-          <button class="btn pri" id="a-run" style="width:100%;margin-bottom:14px">run audit</button>
-          <div class="scorebox">
-            <div class="scorering" id="a-score" style="color:var(--faint)">—</div>
-            <div class="scoremeta" id="a-meta">in-scope score</div>
-            <div id="a-detail"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <div class="foot">
-    Real <span class="mono">check() · audit() · delegate() · resolveRecords()</span> cascade from <span class="mono">@avee1234/capgrant</span>, running client-side · content-hash ids via WebCrypto SHA-256 · zero dependencies · MIT<br>
-    <a href="https://github.com/abhid1234/capgrant">github.com/abhid1234/capgrant</a> &nbsp;·&nbsp; <span class="mono">npm i @avee1234/capgrant</span> &nbsp;·&nbsp; <span class="mono">npx @avee1234/capgrant check fs.write src/auth/login.ts --subject builder</span>
+<header class="site">
+  <div class="nav">
+    <span class="wm">
+      <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="4.4"/><path d="M11 11l8 8M16 16l2.5-2.5M18.5 18.5l2-2"/></svg></span>
+      <span class="wmname">capgrant</span>
+    </span>
+    <span class="sp"></span>
+    <a class="lnk hideM" href="#playground">Playground</a>
+    <a class="lnk hideM" href="#quickstart">Quickstart</a>
+    <a class="lnk hideM" href="#built">How it's built</a>
+    <a class="lnk" href="https://github.com/abhid1234/capgrant" target="_blank" rel="noopener">GitHub</a>
+    <a class="lnk hideM" href="https://www.npmjs.com/package/@avee1234/capgrant" target="_blank" rel="noopener">npm</a>
   </div>
+</header>
 
-  <datalist id="subjects"></datalist>
-</div>
+<main class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="eyebrow"><span class="dotlive"></span> zero-dependency · open format · harness-neutral</div>
+    <h1>Your agents run with<br><span class="v">ambient root.</span><br>Hand them a <span class="g">keycard</span> instead.</h1>
+    <p class="lede">A fleet of AI coding agents runs with far too much authority — each can write anywhere, run anything, reach any endpoint the process can. <b>capgrant</b> is the missing authorization layer: an issuer hands an agent a scoped, expiring <b>capability grant</b> — <span class="scope"><span class="b">[ </span><span class="a">fs.write</span><span class="b"> : </span><span class="r">src/**</span><span class="b"> ]</span></span> for the next 30 minutes — and before it acts, the agent <span class="v">check</span>s the gate. Grants <span class="g">delegate</span> into strict subsets and <span class="r">revoke</span> in a cascade. Everything below runs the <b>real, unmodified library</b> client-side.</p>
+    <div class="cta">
+      <a class="btn pri" href="#playground">Try it live ↓</a>
+      <span class="install"><span><span class="pfx">$</span> <span class="cmd">npx @avee1234/capgrant</span></span><button id="copyInstall">copy</button></span>
+    </div>
+    <div class="statband">
+      <div class="cell click" id="stat-verbs"><div class="n v" data-to="5">5</div><div class="k">verbs — <u>grant · check · delegate · revoke · audit</u> run the full lifecycle live below.</div></div>
+      <div class="cell"><div class="n g" data-to="0">0</div><div class="k">escalation paths — delegation is subset-only and expiry-bounded; a child can never exceed its parent. Enforced in code, not policy.</div></div>
+      <div class="cell"><div class="n g" data-to="0">0</div><div class="k">dependencies — one append-only JSONL registry, content-hash ids, 186 tests, MIT.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ PLAYGROUND ============ -->
+  <section id="playground">
+    <div class="kicker">Playground — runs the real library, in your browser</div>
+    <h2 class="sec-h">Issue a keycard. Check the gate. <em>Watch it cascade.</em></h2>
+    <p class="sec-sub">Every decision below is the actual published <code>capgrant</code> code, imported as browser ES modules — the same functions <code>npm i @avee1234/capgrant</code> gives you. Nothing is faked or sent to a server. Content-hash ids are computed with WebCrypto SHA-256. All five tabs share one live append-only registry.</p>
+
+    <div class="pg">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true" data-tab="grant"><span class="num">01</span>Grant</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="check"><span class="num">02</span>Check</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="delegate"><span class="num">03</span>Delegate</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="revoke"><span class="num">04</span>Revoke</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="audit"><span class="num">05</span>Audit</button>
+      </div>
+
+      <!-- 01 GRANT -->
+      <div class="panel on" id="p-grant" role="tabpanel">
+        <p class="pdesc">Issue a scoped, expiring grant: <b>who</b> (subject) may do <b>what</b> (capabilities: action <span class="scope"><span class="b">:</span></span> resource) over <b>how long</b> (TTL), and <b>who said so</b> (issuer). The real <code>makeGrant()</code> validates every field, computes <code>expires = created + ttl</code>, mints a content-hash id, and appends it to the registry — rendered as a laminated keycard.</p>
+        <div class="grid2">
+          <div class="card">
+            <div class="field">
+              <span class="lbl">subject &nbsp;·&nbsp; issuer</span>
+              <div class="row">
+                <input id="g-subject" value="builder" placeholder="agent id" aria-label="subject">
+                <input id="g-issuer" value="alice" placeholder="issuer" aria-label="issuer">
+              </div>
+            </div>
+            <div class="field">
+              <span class="lbl">capabilities &nbsp;·&nbsp; action : resource</span>
+              <div id="g-caps"></div>
+              <button class="btn link" id="g-addcap">+ add capability</button>
+            </div>
+            <div class="field row wrap">
+              <div style="flex:1;min-width:120px">
+                <span class="lbl">TTL</span>
+                <input id="g-ttl" value="30m" placeholder="30m · 2h · 1d" aria-label="ttl">
+              </div>
+              <label class="ck" style="margin-top:20px"><input type="checkbox" id="g-deleg" checked> delegable</label>
+            </div>
+            <div class="field"><button class="btn pri" id="g-issue" style="width:100%">＋ issue grant → registry</button></div>
+          </div>
+          <div class="card dim">
+            <span class="lbl">the registry &nbsp;·&nbsp; laminated badges <span id="reg-count" style="color:var(--faint)"></span></span>
+            <div id="badges"></div>
+            <div class="jsonl">
+              <div class="jh">.capgrant/registry.jsonl · append-only · content-hash id</div>
+              <pre id="jsonl" class="empty">— empty —</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 02 CHECK -->
+      <div class="panel" id="p-check" role="tabpanel">
+        <p class="pdesc">The pre-action turnstile. <code>check(action, resource, grants, {subject})</code> asks: does a <span class="g">live grant for this subject</span> cover this request? The barrier lifts <span class="g">green on ALLOW</span>, slams <span class="r">red on DENY</span> — always with the real, specific reason.</p>
+        <div class="card">
+          <div class="row wrap" style="gap:12px;margin-bottom:16px">
+            <div style="flex:1;min-width:130px"><span class="lbl">action</span>
+              <select id="c-action">
+                <option>fs.write</option><option>fs.read</option><option>fs</option>
+                <option>net.fetch</option><option>proc.exec</option><option>*</option>
+              </select></div>
+            <div style="flex:2;min-width:170px"><span class="lbl">resource</span><input id="c-resource" value="src/auth/login.ts"></div>
+            <div style="flex:1;min-width:120px"><span class="lbl">subject</span><input id="c-subject" value="builder" list="subjects"></div>
+            <button class="btn pri" id="c-run" style="margin-top:19px">check →</button>
+          </div>
+          <div class="gatewrap">
+            <div class="stage" id="stage">
+              <div class="glow"></div>
+              <div class="verd" id="stage-verd">GATE</div>
+              <div class="road"></div>
+              <div class="hub"></div>
+              <div class="arm" id="arm"><i></i></div>
+              <div class="post"></div>
+            </div>
+            <div>
+              <div class="verdict" id="verdict"><div class="big" style="color:var(--faint)">awaiting check…</div><div class="reason">Pick an action, resource and subject, then run the gate. The barrier lifts green on ALLOW, drops red on DENY — with the real reason.</div></div>
+              <div class="quickfills">
+                <button class="btn ghost sm" data-fill="in">✓ in-scope example</button>
+                <button class="btn ghost sm" data-fill="out">✗ fs.write /etc/passwd</button>
+                <button class="btn ghost sm" data-fill="subj">✗ wrong subject</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="hint-h">The action hierarchy — implication flows downward only</div>
+          <div class="hgrid">
+            <div class="hrow">
+              <div class="grantline">grant &nbsp;<span class="scope"><span class="b">[ </span><span class="a">fs</span><span class="b"> : </span><span class="r">src/**</span><span class="b"> ]</span></div>
+              <div class="req">request &nbsp;<span class="scope"><span class="a">fs.write</span> &nbsp;<span class="b">src/app.ts</span></span></div>
+              <div id="h-allow"><span class="hpill a">running…</span></div>
+              <div class="hnote"><b style="color:var(--ink2)">fs</b> is a prefix of <b style="color:var(--ink2)">fs.write</b> → the broad grant covers the narrow request.</div>
+            </div>
+            <div class="hrow">
+              <div class="grantline">grant &nbsp;<span class="scope"><span class="b">[ </span><span class="a">fs.write</span><span class="b"> : </span><span class="r">src/**</span><span class="b"> ]</span></div>
+              <div class="req">request &nbsp;<span class="scope"><span class="a">fs</span> &nbsp;<span class="b">src/app.ts</span></span></div>
+              <div id="h-deny"><span class="hpill d">running…</span></div>
+              <div class="hnote"><b style="color:var(--ink2)">fs.write</b> is narrower than <b style="color:var(--ink2)">fs</b> → it can never grant the broader authority.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 03 DELEGATE -->
+      <div class="panel" id="p-delegate" role="tabpanel">
+        <p class="pdesc">A <b>delegable</b> grant can mint a <span class="g">strictly narrower</span> child. The real <code>delegate()</code> enforces three invariants — parent must be delegable, every child capability must be <b>covered</b> by the parent (no privilege escalation), and the child can't outlive the parent. Try to escalate and watch the library <span class="r">throw the real block</span>.</p>
+        <div class="grid2">
+          <div class="card">
+            <div class="field">
+              <span class="lbl">parent grant &nbsp;(delegable + active)</span>
+              <select id="d-parent"></select>
+            </div>
+            <div class="field">
+              <span class="lbl">child subject</span>
+              <input id="d-subject" value="reviewer">
+            </div>
+            <div class="field">
+              <span class="lbl">child capability &nbsp;·&nbsp; action : resource</span>
+              <div class="row">
+                <select id="d-action" style="flex:1">
+                  <option>fs.write</option><option>fs.read</option><option>net.fetch</option><option>proc.exec</option>
+                </select>
+                <input id="d-resource" value="src/auth/**" style="flex:1.4">
+              </div>
+            </div>
+            <div class="field row wrap" style="gap:10px">
+              <button class="btn pri" id="d-delegate">⊂ delegate subset</button>
+              <button class="btn ghost" id="d-escalate">try to escalate →</button>
+            </div>
+            <div class="esc-out" id="esc-out"></div>
+          </div>
+          <div class="card dim">
+            <span class="lbl">delegation tree</span>
+            <div class="tree" id="tree"><div style="color:var(--faint);font-size:13px;padding:14px 0">No delegations yet. Delegate a subset from the parent grant to draw the chain.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 04 REVOKE -->
+      <div class="panel" id="p-revoke" role="tabpanel">
+        <p class="pdesc">Revocation is append-only: <code>revoke()</code> writes one record, and the real <span class="scope"><span class="a">resolveRecords</span></span> fold stamps the grant — <b>and every grant delegated from it</b> — <span class="r">REVOKED</span> at read time, cascading to a fixed point. Pull a parent and the whole subtree collapses with it. The stored log is never rewritten.</p>
+        <div class="row wrap" style="gap:10px;margin-bottom:18px">
+          <button class="btn pri" id="r-demo">▸ revoke the seed parent (watch the cascade)</button>
+        </div>
+        <div class="grid2">
+          <div class="card dim">
+            <span class="lbl">the registry &nbsp;·&nbsp; revoke any live grant</span>
+            <div id="rev-list"></div>
+          </div>
+          <div class="card dim">
+            <span class="lbl">delegation tree &nbsp;·&nbsp; reddens on cascade</span>
+            <div class="tree" id="tree2"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 05 AUDIT -->
+      <div class="panel" id="p-audit" role="tabpanel">
+        <p class="pdesc">Replay what the fleet did. The real <code>audit(actions, grants)</code> re-checks a batch of past <span class="scope"><span class="a">action</span> · resource · subject</span> tuples against the resolved registry and scores how many stayed in scope — with a specific reason for every violation. Edit the batch and re-run.</p>
+        <div class="card">
+          <div class="auditgrid">
+            <div>
+              <div class="actrow head"><div>action</div><div>resource</div><div>subject</div><div></div></div>
+              <div id="a-rows"></div>
+              <button class="btn link" id="a-add">+ add action</button>
+            </div>
+            <div>
+              <button class="btn pri" id="a-run" style="width:100%;margin-bottom:14px">run audit</button>
+              <div class="scorebox">
+                <div class="scorering" id="a-score" style="color:var(--faint)">—</div>
+                <div class="scoremeta" id="a-meta">in-scope score</div>
+                <div id="a-detail"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ QUICKSTART ============ -->
+  <section id="quickstart">
+    <div class="kicker">Quickstart — adopt it in a minute</div>
+    <h2 class="sec-h">Three ways a fleet uses it.</h2>
+    <p class="sec-sub">A CLI for one-off grants and checks, a library to gate actions inside your own agent runtime, or a git pre-commit hook that checks every staged write against the committing agent's grants.</p>
+    <div class="qs">
+      <div class="qcard">
+        <h4>① CLI &amp; check gate</h4>
+        <p class="cap">Issue a scoped grant, then gate an action — exit 0 allowed, 1 denied. No install needed.</p>
+<pre><span class="c"># no install needed</span>
+npx <span class="k">@avee1234/capgrant</span> grant \
+  --subject builder \
+  --cap <span class="s">"fs.write:src/**"</span> --ttl 30m
+
+npx <span class="k">@avee1234/capgrant</span> check \
+  fs.write src/auth/login.ts \
+  --subject builder</pre>
+      </div>
+      <div class="qcard">
+        <h4>② Library</h4>
+        <p class="cap">Check before the agent acts, inside your own runtime. Zero dependencies, pure ESM.</p>
+<pre>import { check } from
+  <span class="s">'@avee1234/capgrant'</span>;
+
+<span class="c">// gate the action</span>
+const r = check(action, resource,
+  grants, { subject, now });
+if (!r.allowed) refuse(r.reason);</pre>
+      </div>
+      <div class="qcard">
+        <h4>③ Git hook</h4>
+        <p class="cap">A pre-commit hook checks each staged write against the agent's grants. Advisory by default.</p>
+<pre>capgrant hook install
+
+<span class="c"># enforce: out-of-scope</span>
+<span class="c"># write aborts the commit</span>
+<span class="k">CAPGRANT_ENFORCE=1</span> \
+  git commit -m <span class="s">"…"</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ HOW IT'S BUILT ============ -->
+  <section id="built">
+    <div class="kicker">How it's built — no magic</div>
+    <h2 class="sec-h">The playground runs <em>this exact source.</em></h2>
+    <p class="sec-sub">capgrant is under 1,300 lines of pure, dependency-free JavaScript. The tabs above import these same files as browser ES modules — so what you're poking at <b>is</b> the library. Expand any function to read the real implementation, fetched live from <code>/lib</code>. (The only browser change: <code>computeRecordId</code> uses WebCrypto SHA-256 instead of Node's <code>crypto</code> — every decision line is untouched.)</p>
+    <details class="src"><summary><span class="file">check.js</span> <span class="fn">check()</span> <span class="chev">›</span></summary><pre id="src-check">loading…</pre></details>
+    <details class="src"><summary><span class="file">capability.js</span> <span class="fn">capabilityCovers() · actionImplies()</span> <span class="chev">›</span></summary><pre id="src-capability">loading…</pre></details>
+    <details class="src"><summary><span class="file">grant-browser.js</span> <span class="fn">makeGrant() · delegate() · revoke()</span> <span class="chev">›</span></summary><pre id="src-grant-browser">loading…</pre></details>
+    <details class="src"><summary><span class="file">registry-browser.js</span> <span class="fn">resolveRecords() — the fold + cascade</span> <span class="chev">›</span></summary><pre id="src-registry-browser">loading…</pre></details>
+    <details class="src"><summary><span class="file">audit.js</span> <span class="fn">audit()</span> <span class="chev">›</span></summary><pre id="src-audit">loading…</pre></details>
+  </section>
+
+  <!-- ============ WHAT'S IN THE BOX ============ -->
+  <section>
+    <div class="kicker">What's in the box</div>
+    <h2 class="sec-h">Six verbs, one format, a git hook.</h2>
+    <div class="fgrid">
+      <div class="feat"><div class="cmd">capgrant grant</div><h4>Grant</h4><p>Issue a scoped, expiring capability grant — <code>action:resource</code> with a TTL — validated before it's written.</p></div>
+      <div class="feat"><div class="cmd">capgrant check</div><h4>Check</h4><p>The pre-action gate: does a live grant for this subject cover the request? Exit 0 allowed, 1 denied, specific reason.</p></div>
+      <div class="feat"><div class="cmd">capgrant delegate</div><h4>Delegate</h4><p>Mint a strictly narrower sub-grant from a delegable parent. Every capability must fall inside the parent's authority.</p></div>
+      <div class="feat"><div class="cmd">capgrant revoke</div><h4>Revoke</h4><p>Withdraw a grant by appending a revocation — and cascade to every grant delegated from it, to a fixed point.</p></div>
+      <div class="feat"><div class="cmd">capgrant audit</div><h4>Audit</h4><p>Replay a batch of actions and score whether the fleet stayed in scope, each timestamped against the grant that was live then.</p></div>
+      <div class="feat"><div class="cmd">capgrant hook</div><h4>Git hook</h4><p>A pre-commit hook that treats a commit as a batch of <code>fs.write</code>s and checks each staged path. Advisory by default.</p></div>
+    </div>
+  </section>
+
+  <!-- ============ META ============ -->
+  <section>
+    <div class="kicker">Meta</div>
+    <h2 class="sec-h">Built — and shipped — by an autonomous agent factory.</h2>
+    <div class="metacard">
+      <p>Every verb was triaged, specced, implemented, adversarially reviewed, and released by an autonomous <b>software factory</b> of agents, with a human approving the gates. The tool that bounds an agent fleet's authority was built by an agent fleet — and the same <span class="scope"><span class="b">[ </span><span class="a">fs.write</span><span class="b"> : </span><span class="r">src/**</span><span class="b"> ]</span></span> grants that now ship it are the model it implements. Least privilege, all the way down.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="frow">
+      <span class="wm">
+        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="4.4"/><path d="M11 11l8 8M16 16l2.5-2.5M18.5 18.5l2-2"/></svg></span>
+        <span class="wmname">capgrant</span>
+      </span>
+      <span class="sp"></span>
+      <a href="https://github.com/abhid1234/capgrant" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://www.npmjs.com/package/@avee1234/capgrant" target="_blank" rel="noopener">npm</a>
+      <span class="badge2">MIT · 0 deps · 186 tests</span>
+    </div>
+    <div class="fnote">
+      Real <span class="mono">check() · audit() · delegate() · resolveRecords()</span> cascade from <span class="mono">@avee1234/capgrant</span>, running client-side · content-hash ids via WebCrypto SHA-256 · zero dependencies.<br>
+      <span class="mono">npm i @avee1234/capgrant</span> &nbsp;·&nbsp; <span class="mono">npx @avee1234/capgrant check fs.write src/auth/login.ts --subject builder</span>
+    </div>
+  </div>
+</footer>
+
+<datalist id="subjects"></datalist>
 <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -427,6 +659,13 @@ const IC_USER = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 const IC_CLOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>`;
 const IC_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>`;
 const IC_X = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+
+// ---------- tabs ----------
+function selectTab(name){
+  document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', x.dataset.tab === name ? 'true':'false'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + name));
+}
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => selectTab(t.dataset.tab)));
 
 // ---------- capability rows (issue form) ----------
 const ACTIONS = ['fs.write','fs.read','fs','net.fetch','proc.exec','*'];
@@ -466,6 +705,7 @@ async function refresh(){
   renderJsonl();
   renderParentSelect();
   renderTree();
+  renderRevList();
   renderSubjects();
 }
 
@@ -632,30 +872,51 @@ async function tryEscalate(){
 }
 function renderTree(){
   const children = resolved.filter(g=>g.parent);
-  const tree=$('tree');
-  if(!children.length){ tree.innerHTML=`<div style="color:var(--faint);font-size:13px;padding:14px 0">No delegations yet. Delegate a subset from the parent grant to draw the chain.</div>`; return; }
-  // render each parent→child chain (parent may repeat; show unique parents)
-  const parents=[...new Set(children.map(c=>c.parent))];
-  tree.innerHTML = parents.map(pid=>{
-    const p=resolved.find(g=>g.id===pid);
-    const kids=children.filter(c=>c.parent===pid);
-    if(!p) return '';
-    const node=(g,role)=>{
-      const rv=g.status==='revoked';
-      return `<div class="tnode ${rv?'revoked':''}">
-        <div class="tt">${role} · ${shortId(g.id)}<span class="st ${rv?'revoked':'active'}">${rv?'REVOKED':'active'}</span></div>
-        <div class="who">${esc(g.subject)}</div>
-        ${(g.capabilities||[]).map(scopeHTML).join(' ')}</div>`;
-    };
-    const anyRevoked = p.status==='revoked' || kids.some(k=>k.status==='revoked');
-    return node(p,'PARENT') +
-      kids.map(k=>`<div class="connector ${anyRevoked?'revoked':''}"><span class="cl">${p.status==='revoked'?'cascade ✕':'⊂ subset'}</span></div>${node(k,'CHILD')}`).join('');
-  }).join('<div style="height:16px"></div>');
+  const html = (()=>{
+    if(!children.length){ return `<div style="color:var(--faint);font-size:13px;padding:14px 0">No delegations yet. Delegate a subset from the parent grant to draw the chain.</div>`; }
+    const parents=[...new Set(children.map(c=>c.parent))];
+    return parents.map(pid=>{
+      const p=resolved.find(g=>g.id===pid);
+      const kids=children.filter(c=>c.parent===pid);
+      if(!p) return '';
+      const node=(g,role)=>{
+        const rv=g.status==='revoked';
+        return `<div class="tnode ${rv?'revoked':''}">
+          <div class="tt">${role} · ${shortId(g.id)}<span class="st ${rv?'revoked':'active'}">${rv?'REVOKED':'active'}</span></div>
+          <div class="who">${esc(g.subject)}</div>
+          ${(g.capabilities||[]).map(scopeHTML).join(' ')}</div>`;
+      };
+      const anyRevoked = p.status==='revoked' || kids.some(k=>k.status==='revoked');
+      return node(p,'PARENT') +
+        kids.map(k=>`<div class="connector ${anyRevoked?'revoked':''}"><span class="cl">${p.status==='revoked'?'cascade ✕':'⊂ subset'}</span></div>${node(k,'CHILD')}`).join('');
+    }).join('<div style="height:16px"></div>');
+  })();
+  $('tree').innerHTML = html;
+  const t2=$('tree2'); if(t2) t2.innerHTML = html;
 }
 
 // ---------- REVOKE ----------
+function renderRevList(){
+  const el=$('rev-list'); if(!el) return;
+  if(!resolved.length){ el.innerHTML='<div style="color:var(--faint);font-size:13px;padding:10px 0">registry empty — issue a grant first.</div>'; return; }
+  el.innerHTML = resolved.map(g=>{
+    const st=g.status;
+    const cls=st==='active'?'active':(st==='revoked'?'revoked':'expired');
+    const stt=st==='active'?'ACTIVE':(st==='revoked'?'REVOKED':'EXPIRED');
+    const scopes=(g.capabilities||[]).map(scopeHTML).join(' ');
+    const meta=`<span style="color:var(--faint)">${shortId(g.id)}${g.parent?' · child of '+shortId(g.parent):''}</span>`;
+    const ctl = st==='active'
+      ? `<button class="btn ghost sm revbtn2" data-id="${g.id}" title="${g.delegable?'cascades to delegated children':'revoke this grant'}">revoke${g.delegable?' ↯':''}</button>`
+      : `<span style="font-size:11px;color:var(--faint)">${st==='revoked'?esc(g.revoked_reason||'revoked'):'expired'}</span>`;
+    return `<div class="revrow ${cls}">
+      <div class="rl"><div class="who">${esc(g.subject)}</div><div class="sc">${scopes} · ${meta}</div></div>
+      <span class="stt ${cls}">${stt}</span>
+      ${ctl}
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.revbtn2').forEach(b=>b.onclick=()=>doRevoke(b.dataset.id));
+}
 async function doRevoke(grantId){
-  const g=resolved.find(x=>x.id===grantId);
   try{
     const rec = await revoke(grantId, {issuer:'alice', reason:'task complete', at:isoNow()});  // REAL revoke()
     registry.push(rec);
@@ -719,6 +980,22 @@ $('d-escalate').onclick=tryEscalate;
 $('r-demo').onclick=()=>{ if(firstBadgeId) doRevoke(firstBadgeId); else toast('nothing to revoke', true); };
 $('a-add').onclick=()=>addActRow();
 $('a-run').onclick=runAudit;
+$('stat-verbs').onclick=()=>{ selectTab('grant'); document.getElementById('playground').scrollIntoView(); };
+$('copyInstall').addEventListener('click', async (e)=>{ try{ await navigator.clipboard.writeText('npx @avee1234/capgrant'); e.target.textContent='copied ✓'; setTimeout(()=>e.target.textContent='copy',1400);}catch{} });
+
+// ---------- source viewer (fetch the real files) ----------
+for (const f of ['check','capability','grant-browser','registry-browser','audit']) {
+  fetch('./lib/'+f+'.js').then(r=>r.text()).then(t=>{ const el=$('src-'+f); if(el) el.textContent = t; }).catch(()=>{ const el=$('src-'+f); if(el) el.textContent='(source unavailable)'; });
+}
+
+// ---------- statband count-up ----------
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+if(!reduce){
+  document.querySelectorAll('.statband .n[data-to]').forEach(el=>{
+    const to=+el.dataset.to, start=performance.now(), ms=900;
+    (function tick(t){ const p=Math.min(1,(t-start)/ms); el.textContent=Math.round(to*(0.5-Math.cos(Math.PI*p)/2)); if(p<1) requestAnimationFrame(tick); })(start);
+  });
+}
 
 // ---------- seed ----------
 async function seed(){
@@ -735,6 +1012,14 @@ async function seed(){
     {issuer:'alice',subject:'builder',ttl_seconds:1800,created:CREATED,delegable:true});
   registry.push(seedGrant);
   firstBadgeId = seedGrant.id;
+  // seed a delegated child so the tree + cascade demo are populated on load
+  try{
+    const child = await delegate(seedGrant, [{action:'fs.write',resource:'src/api/**'}], {
+      issuer: seedGrant.subject, subject: 'auditor',
+      ttl_seconds: Math.min(1200, seedGrant.ttl_seconds), created: isoNow(),
+    });
+    registry.push(child);
+  }catch(e){ /* seed delegation is best-effort */ }
   await refresh();
   await runHierarchy();
   await runCheck('fs.write','src/auth/login.ts','builder');   // gate opens on load
