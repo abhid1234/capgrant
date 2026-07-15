@@ -10,17 +10,23 @@
 import { capabilityCoverage } from "./capability.js";
 import { shortId } from "./registry.js";
 
-// check(action, resource, grants, opts) → { allowed, matched_grant, reason }
+// check(action, resource, grants, opts) → { allowed, needs_approval, matched_grant, reason }
 //
-//   opts.subject — the agent asking; only grants whose `subject` matches are
-//                  considered (a grant for another agent never authorizes you).
-//                  If null/undefined, subject is not filtered.
-//   opts.now     — epoch ms used to evaluate `expires`; injected for determinism.
-//   opts.request — the request CONTEXT a constrained capability is scored
-//                  against: `{ bytes, calls, rate, method }`. For convenience
-//                  those same fields may be passed inline on `opts` instead. The
-//                  concrete `resource` is always available, so a `path_depth`
-//                  constraint applies even with no explicit request context.
+//   opts.subject  — the agent asking; only grants whose `subject` matches are
+//                   considered (a grant for another agent never authorizes you).
+//                   If null/undefined, subject is not filtered.
+//   opts.now      — epoch ms used to evaluate `expires`; injected for determinism.
+//   opts.request  — the request CONTEXT a constrained capability is scored
+//                   against: `{ bytes, calls, rate, method }`. For convenience
+//                   those same fields may be passed inline on `opts` instead. The
+//                   concrete `resource` is always available, so a `path_depth`
+//                   constraint applies even with no explicit request context.
+//   opts.requests — the resolved approval requests (as `resolveRecords` returns
+//                   them). Used ONLY to distinguish "needs approval" from a hard
+//                   deny: when no live grant covers the request but a matching
+//                   PENDING request exists for this subject/action/resource, the
+//                   result is a soft deny with `needs_approval: true`. Omitted ⇒
+//                   `needs_approval` is always false (fully backward-compatible).
 //
 // Scans in registry order (sorted by soonest expiry) for the FIRST grant that is
 // status "active", not expired at `now`, matches `subject`, and carries some
@@ -29,9 +35,11 @@ import { shortId } from "./registry.js";
 // distinguishes an empty registry, no grant for the subject, a covered request
 // that violates a constraint, an out-of-scope request, an expired grant, and a
 // revoked grant — so the caller can tell "you were never granted this" from
-// "your grant lapsed" from "you're in scope but over the byte cap".
+// "your grant lapsed" from "you're in scope but over the byte cap". `allowed` is
+// unchanged from prior versions; `needs_approval` is a purely additive field.
 export function check(action, resource, grants, opts = {}) {
   const { subject = null, now = Date.now() } = opts;
+  const requests = Array.isArray(opts.requests) ? opts.requests : [];
   const request =
     opts.request != null
       ? opts.request
@@ -75,6 +83,7 @@ export function check(action, resource, grants, opts = {}) {
       if (cov.violation == null) {
         return {
           allowed: true,
+          needs_approval: false,
           matched_grant: grant,
           reason: `authorized by grant ${shortId(grant.id)}: "${cap.action}" on "${cap.resource}"`,
         };
@@ -91,7 +100,31 @@ export function check(action, resource, grants, opts = {}) {
     }
   }
 
-  return { allowed: false, matched_grant: null, reason: denialReason() };
+  // No live grant covered the request. Before returning a hard deny, look for a
+  // matching PENDING approval request for this subject/action/resource — if one
+  // exists, this is "needs approval" (a human can approve it into a just-in-time
+  // grant), a softer signal than a flat DENY. `allowed` stays false either way.
+  // A request COVERS the check on the same two axes a capability does (so a
+  // request for `src/auth/**` matches a check for `src/auth/login.ts`), reusing
+  // the one coverage engine so a request and a grant agree on what "matches".
+  const pending = requests.find(
+    (r) =>
+      r &&
+      r.status === "pending" &&
+      (subject == null || r.subject === subject) &&
+      capabilityCoverage(r, action, resource).axes
+  );
+  if (pending) {
+    return {
+      allowed: false,
+      needs_approval: true,
+      matched_grant: null,
+      request_id: pending.id,
+      reason: `no grant — request approval (pending request ${shortId(pending.id)})`,
+    };
+  }
+
+  return { allowed: false, needs_approval: false, matched_grant: null, reason: denialReason() };
 
   function denialReason() {
     const who = subject != null ? `subject "${subject}"` : "the subject";

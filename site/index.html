@@ -331,6 +331,34 @@
     transition:.25s;pointer-events:none;z-index:60;box-shadow:0 12px 30px -12px #000;}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   .toast.err{border-color:var(--bad2);color:var(--bad);}
+
+  /* ---------- v0.3: approval / human-in-the-loop ---------- */
+  .aprow{background:#0f131a;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px;transition:border-color .35s,opacity .35s;animation:drop .35s ease;}
+  .aprow.approved{border-color:var(--good2);}
+  .aprow.denied{border-color:var(--bad2);opacity:.9;}
+  .aprow .aptop{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+  .aprow .apwho{font-family:"Fraunces",serif;font-size:16px;font-weight:600;}
+  .aprow .apst{margin-left:auto;font-size:10px;letter-spacing:1.5px;font-weight:700;padding:3px 9px;border-radius:6px;flex:0 0 auto;}
+  .aprow .apst.pending{color:var(--amber);background:rgba(255,180,84,.12);}
+  .aprow .apst.approved{color:var(--good);background:var(--goodsoft);}
+  .aprow .apst.denied{color:var(--bad);background:var(--badsoft);}
+  .aprow .apsc{font-size:12.5px;color:var(--ink2);margin-bottom:7px;word-break:break-word;}
+  .aprow .apreason{font-size:11.5px;color:var(--faint);margin-bottom:11px;line-height:1.5;word-break:break-word;}
+  .apverd{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;border-radius:9px;padding:9px 12px;
+    border:1px solid var(--line);background:#0c0f14;color:var(--faint);transition:background .45s,color .45s,border-color .45s;line-height:1.45;}
+  .apverd svg{width:15px;height:15px;flex:0 0 auto;}
+  .apverd.need{color:var(--amber);border-color:rgba(255,180,84,.4);background:rgba(255,180,84,.08);}
+  .apverd.allow{color:var(--good);border-color:var(--good2);background:var(--goodsoft);}
+  .apverd.deny{color:var(--bad);border-color:var(--bad2);background:var(--badsoft);}
+  .apmint{font-size:11.5px;color:var(--good);margin-top:10px;line-height:1.55;display:flex;align-items:flex-start;gap:6px;}
+  .apmint.deny{color:var(--bad);}
+  .apmint svg{width:14px;height:14px;flex:0 0 auto;margin-top:1px;}
+  .apmint .mono{background:#141821;border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--ink2);}
+  .apacts{display:flex;gap:9px;margin-top:12px;}
+  .btn.approve{background:linear-gradient(135deg,var(--good),var(--good2));color:#0c0f14;}
+  .btn.approve:hover{filter:brightness(1.07);}
+  .btn.deny{background:#0f131a;color:var(--bad);border:1px solid var(--bad2);}
+  .btn.deny:hover{filter:brightness(1.12);}
 </style>
 </head>
 <body>
@@ -382,6 +410,7 @@
         <button class="tab" role="tab" aria-selected="false" data-tab="revoke"><span class="num">04</span>Revoke</button>
         <button class="tab" role="tab" aria-selected="false" data-tab="audit"><span class="num">05</span>Audit</button>
         <button class="tab" role="tab" aria-selected="false" data-tab="sign"><span class="num">06</span>Sign</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="approval"><span class="num">07</span>Approval</button>
       </div>
 
       <!-- 01 GRANT -->
@@ -605,6 +634,38 @@
           </div>
         </div>
       </div>
+
+      <!-- 07 APPROVAL -->
+      <div class="panel" id="p-approval" role="tabpanel">
+        <p class="pdesc"><span class="v">v0.3 — human in the loop:</span> a grant answers <i>“what is this agent pre-authorized to do.”</i> But when an action <b>isn't</b> covered by any live grant, the agent doesn't just hard-fail — it raises an <b>approval_request</b> to a human. The real <code>check()</code> returns a soft <span style="color:var(--amber);font-weight:600">needs_approval</span>, not a flat <span class="r">DENY</span>. A human <span class="g">approves</span> → the real <span class="scope"><span class="a">resolveRecords</span></span> fold mints a <b>just-in-time</b> grant — scoped to exactly that action, expiring on a TTL, parented to the request — and the <b>same</b> <code>check()</code> now returns <span class="g">ALLOW</span>. <span class="r">Deny</span> and it stays denied. Grant ahead of time, or request → approve just in time.</p>
+        <div class="grid2">
+          <div class="card">
+            <div class="field">
+              <span class="lbl">subject &nbsp;·&nbsp; the agent asking</span>
+              <input id="ap-subject" value="deployer" list="subjects" placeholder="agent id">
+            </div>
+            <div class="field">
+              <span class="lbl">action : resource &nbsp;·&nbsp; what it wants to do</span>
+              <div class="row">
+                <select id="ap-action" style="flex:1">
+                  <option>proc.exec</option><option>fs.write</option><option>fs.read</option><option>net.fetch</option><option>*</option>
+                </select>
+                <input id="ap-resource" value="scripts/deploy.sh" style="flex:1.4">
+              </div>
+            </div>
+            <div class="field">
+              <span class="lbl">reason &nbsp;·&nbsp; the human reads this</span>
+              <input id="ap-reason" value="one-off production deploy">
+            </div>
+            <div class="field"><button class="btn pri" id="ap-request" style="width:100%">⤴ raise approval_request → registry</button></div>
+            <div class="sg-note">No grant covers this action, so instead of a dead end the agent appends a real <b>approval_request</b> record. It sits <span style="color:var(--amber)">pending</span> — <code>check()</code> reports <b>needs_approval</b> — until a human decides. An <b>approve</b> mints a scoped, expiring grant just in time; the gate flips <span style="color:var(--good)">green</span>.</div>
+          </div>
+          <div class="card dim">
+            <span class="lbl">pending &amp; decided &nbsp;·&nbsp; human in the loop <span id="ap-count" style="color:var(--faint)"></span></span>
+            <div id="ap-list"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -714,6 +775,7 @@ import { check } from './lib/check.js';                       // verbatim src/ch
 import { audit } from './lib/audit.js';                       // verbatim src/audit.js
 import { capabilityCovers } from './lib/capability.js';       // verbatim src/capability.js
 import { makeGrant, delegate, revoke, parseTtl } from './lib/grant-browser.js';
+import { requestApproval, decide } from './lib/approval-browser.js';       // verbatim src/approval.js (async id)
 import { resolveRecords, shortId, formatRelative, canonicalize } from './lib/registry-browser.js';
 
 const $ = id => document.getElementById(id);
@@ -728,6 +790,7 @@ const isoNow = () => new Date(NOW).toISOString();
 // The append-only log (raw records). resolveRecords folds it into the grant set.
 let registry = [];
 let resolved = [];         // last resolved grant set (for lookups)
+let resolvedRequests = []; // last resolved approval-request set (v0.3)
 let firstBadgeId = null;   // the seed parent grant id
 
 // ---------- svg snippets ----------
@@ -814,8 +877,9 @@ function toast(msg, err=false){
 
 // ---------- resolve + render ----------
 async function refresh(){
-  const res = await resolveRecords(registry, { now: NOW });   // REAL fold + cascade + TTL
+  const res = await resolveRecords(registry, { now: NOW });   // REAL fold + cascade + TTL + approval mint
   resolved = res.grants;
+  resolvedRequests = res.requests || [];
   renderBadges();
   renderJsonl();
   renderParentSelect();
@@ -823,6 +887,7 @@ async function refresh(){
   renderRevList();
   renderSubjects();
   renderSignGrants();
+  renderApprovals();
 }
 
 function scopeHTML(cap){
@@ -869,7 +934,7 @@ function renderJsonl(){
   pre.innerHTML = registry.map(r=>{
     const s = JSON.stringify(r);
     return esc(s)
-      .replace(/&quot;(id|type|issuer|subject|action|resource|capabilities|constraints|max_bytes|max_calls|rate|methods|path_depth|ttl_seconds|created|expires|delegable|parent|status|grant_id|reason|at)&quot;:/g,'<span class="k">&quot;$1&quot;</span>:')
+      .replace(/&quot;(id|type|issuer|subject|action|resource|capabilities|constraints|max_bytes|max_calls|rate|methods|path_depth|ttl_seconds|created|expires|delegable|parent|status|grant_id|reason|at|requested_by|request_id|decision|approver|grant_ttl_seconds)&quot;:/g,'<span class="k">&quot;$1&quot;</span>:')
       .replace(/:(&quot;[^&]*?&quot;)/g,':<span class="s">$1</span>');
   }).join('\n');
 }
@@ -1201,6 +1266,89 @@ async function genKeypair(){
   }catch(e){ toast('keypair error: '+e.message, true); }
 }
 
+// ---------- APPROVAL (v0.3 human-in-the-loop) ----------
+// Raise an approval_request for an action no live grant covers. The real
+// requestApproval() validates + content-hashes it; resolveRecords folds it to
+// "pending", and check() then reports needs_approval instead of a flat DENY.
+async function doRequestApproval(){
+  const action=$('ap-action').value.trim();
+  const resource=$('ap-resource').value.trim();
+  const subject=$('ap-subject').value.trim();
+  const reason=$('ap-reason').value.trim();
+  if(!resource) return toast('enter a resource', true);
+  try{
+    const rec = await requestApproval(action, resource, {   // REAL requestApproval()
+      subject, reason, requested_by: subject, created: isoNow(),
+    });
+    registry.push(rec);
+    await refresh();
+    toast(`approval_request ${shortId(rec.id)} raised — check() now needs_approval`);
+  }catch(e){ toast(e.message, true); }
+}
+
+// Human decision. An APPROVE folds (via decide() + resolveRecords) into a
+// just-in-time grant scoped to exactly this action, expiring 30m after the
+// decision; check() then ALLOWs. A DENY leaves it denied and mints nothing.
+async function doDecide(reqId, decision){
+  const req = resolvedRequests.find(r=>r.id===reqId);
+  if(!req) return toast('request not found', true);
+  try{
+    const meta = decision==='approve'
+      ? { approver:'alice', decision:'approve', at:isoNow(), grant_ttl_seconds:1800, reason:'approved by human' }
+      : { approver:'alice', decision:'deny', at:isoNow(), reason:'not now' };
+    const rec = await decide(req, meta);                    // REAL decide()
+    registry.push(rec);
+    await refresh();
+    if(decision==='approve'){
+      const minted = resolved.find(g=>g.parent===reqId);
+      toast(`approved · minted just-in-time grant ${minted?shortId(minted.id):''} — check now ALLOWs`);
+    }else{
+      toast('denied · action stays blocked', true);
+    }
+  }catch(e){ toast(e.message, true); }
+}
+
+function renderApprovals(){
+  const el=$('ap-list'); if(!el) return;
+  const reqs=resolvedRequests;
+  $('ap-count').textContent = reqs.length ? `· ${reqs.length}` : '';
+  if(!reqs.length){
+    el.innerHTML='<div style="color:var(--faint);font-size:13px;padding:10px 0">No approval requests yet. Raise one for an action no live grant covers — it lands here pending.</div>';
+    return;
+  }
+  el.innerHTML = reqs.map(req=>{
+    // Re-run the REAL check() for this request against the live registry, passing
+    // the resolved requests so a still-pending one reads as needs_approval.
+    const r = check(req.action, req.resource, resolved, { subject: req.subject, now: NOW, requests: resolvedRequests });
+    const st = req.status; // pending | approved | denied
+    const scope = scopeHTML({action:req.action, resource:req.resource});
+    let vc, vi, vt;
+    if(r.allowed){ vc='allow'; vi=IC_CHECK; vt=esc(r.reason); }
+    else if(r.needs_approval){ vc='need'; vi=IC_CLOCK; vt=esc(r.reason); }
+    else { vc='deny'; vi=IC_X; vt=esc(r.reason); }
+    let after='';
+    if(st==='approved'){
+      const minted = resolved.find(g=>g.parent===req.id);
+      after = minted
+        ? `<div class="apmint">${IC_CHECK}<span>just-in-time grant <span class="mono">${shortId(minted.id)}</span> minted → stamped <b>GRANTED</b> in the registry · ${minted.status==='active'?'expires '+esc(formatRelative(minted.expires,NOW)):esc(minted.status)}</span></div>`
+        : `<div class="apmint">${IC_CHECK}<span>approved by <b>${esc(req.decided_by||'human')}</b></span></div>`;
+    } else if(st==='denied'){
+      after = `<div class="apmint deny">${IC_X}<span>denied by <b>${esc(req.decided_by||'human')}</b>${req.decided_reason?` · ${esc(req.decided_reason)}`:''} — no grant minted</span></div>`;
+    } else {
+      after = `<div class="apacts"><button class="btn approve sm ap-approve" data-id="${req.id}">✓ approve · TTL 30m</button><button class="btn deny sm ap-deny" data-id="${req.id}">✕ deny</button></div>`;
+    }
+    return `<div class="aprow ${st}">
+      <div class="aptop"><div class="apwho">${esc(req.subject)}</div><span class="apst ${st}">${st.toUpperCase()}</span></div>
+      <div class="apsc">wants ${scope}</div>
+      <div class="apreason">“${esc(req.reason)}” · requested by ${esc(req.requested_by)} · ${shortId(req.id)}</div>
+      <div class="apverd ${vc}">${vi}<span>check() → ${vt}</span></div>
+      ${after}
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.ap-approve').forEach(b=>b.onclick=()=>doDecide(b.dataset.id,'approve'));
+  el.querySelectorAll('.ap-deny').forEach(b=>b.onclick=()=>doDecide(b.dataset.id,'deny'));
+}
+
 // ---------- wire up ----------
 $('g-addcap').onclick=()=>addCapRow();
 $('g-issue').onclick=issueGrant;
@@ -1218,6 +1366,7 @@ $('d-escalate').onclick=tryEscalate;
 $('r-demo').onclick=()=>{ if(firstBadgeId) doRevoke(firstBadgeId); else toast('nothing to revoke', true); };
 $('a-add').onclick=()=>addActRow();
 $('a-run').onclick=runAudit;
+$('ap-request').onclick=doRequestApproval;
 // sign tab
 $('sg-grant').onchange=onSignGrantChange;
 $('sg-genkey').onclick=genKeypair;
@@ -1271,6 +1420,16 @@ async function seed(){
     });
     registry.push(child);
   }catch(e){ /* seed delegation is best-effort */ }
+  // seed a pending approval_request so the v0.3 tab is populated on load: an
+  // action (proc.exec on a deploy script) that NO live grant covers → the gate
+  // reads needs_approval until a human approves it into a just-in-time grant.
+  try{
+    const req = await requestApproval('proc.exec', 'scripts/deploy.sh', {
+      subject: 'deployer', reason: 'one-off production deploy',
+      requested_by: 'deployer', created: CREATED,
+    });
+    registry.push(req);
+  }catch(e){ /* seed request is best-effort */ }
   await refresh();
   await runHierarchy();
   await runCheck('fs.write','src/auth/login.ts','builder');   // gate opens on load
