@@ -90,3 +90,73 @@ function segmentsOverlap(A, B) {
 export function globsOverlap(globA, globB) {
   return segmentsOverlap(normalize(globA), normalize(globB));
 }
+
+// --- directional containment (child ⊆ parent) -------------------------------
+// Delegation must PROVE the child pattern authorizes no path the parent doesn't
+// — an existential overlap is not enough (`src/*.js` overlaps `src/**` on
+// `src/a.js`, yet `src/**` also matches `src/a/b.py`, which `src/*.js` never
+// authorizes). These are the asymmetric analogues of the overlap functions.
+
+// segmentContains(p, c): does within-segment pattern `p` match EVERY string that
+// `c` matches? `*` = any run of non-slash chars. A `c` `*` can emit a character
+// that a `p` literal can't match, so it must be absorbed by a `p` `*`.
+function segmentContains(p, c) {
+  const memo = new Map();
+  const sc = (i, j) => {
+    const key = i * (c.length + 1) + j;
+    if (memo.has(key)) return memo.get(key);
+    let res;
+    if (j === c.length) {
+      res = true; // c-suffix is "" → p must match "" → all remaining p are '*'
+      for (let k = i; k < p.length; k++) if (p[k] !== "*") { res = false; break; }
+    } else if (i < p.length && p[i] === "*") {
+      res = sc(i + 1, j) || sc(i, j + 1); // end the p-star, or absorb one c unit
+    } else if (c[j] === "*") {
+      res = false; // c-star can emit a char no p-literal covers
+    } else if (i === p.length) {
+      res = false; // p exhausted, c literal pending
+    } else if (p[i] === c[j]) {
+      res = sc(i + 1, j + 1);
+    } else {
+      res = false;
+    }
+    memo.set(key, res);
+    return res;
+  };
+  return sc(0, 0);
+}
+
+// segmentsContains(P, C): does token-array `P` match EVERY path that `C` matches?
+// `**` spans zero+ whole segments; a `C` `**` spans an unbounded segment count a
+// single `P` segment can never contain.
+function segmentsContains(P, C) {
+  const memo = new Map();
+  const sc = (i, j) => {
+    const key = i * (C.length + 1) + j;
+    if (memo.has(key)) return memo.get(key);
+    let res;
+    if (j === C.length) {
+      res = true; // C-suffix is the empty path → remaining P must all be '**'
+      for (let k = i; k < P.length; k++) if (P[k] !== "**") { res = false; break; }
+    } else if (i < P.length && P[i] === "**") {
+      res = sc(i + 1, j) || sc(i, j + 1); // end the P-**, or absorb one C unit
+    } else if (C[j] === "**") {
+      res = false; // C spans unbounded segments; a single P segment can't contain it
+    } else if (i === P.length) {
+      res = false;
+    } else if (segmentContains(P[i], C[j])) {
+      res = sc(i + 1, j + 1);
+    } else {
+      res = false;
+    }
+    memo.set(key, res);
+    return res;
+  };
+  return sc(0, 0);
+}
+
+// globContains(parent, child) → does EVERY concrete path matched by `child` also
+// match `parent`? The directional (asymmetric) check delegation needs.
+export function globContains(parentGlob, childGlob) {
+  return segmentsContains(normalize(parentGlob), normalize(childGlob));
+}

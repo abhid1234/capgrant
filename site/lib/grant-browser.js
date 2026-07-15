@@ -10,8 +10,8 @@
 // is unchanged — a malformed or privilege-escalating grant still throws.
 
 import { computeRecordId } from "./registry-browser.js";
-import { validateCapability } from "./schema.js";
-import { capabilityCoverage, constraintsSubsume } from "./capability.js";
+import { validateCapability, validateGrant } from "./schema.js";
+import { capabilityContains } from "./capability.js";
 
 function fail(msg) {
   throw new Error(`capgrant: ${msg}`);
@@ -99,25 +99,39 @@ export async function delegate(parentGrant, capabilities, meta = {}) {
   if (!parentGrant || typeof parentGrant !== "object") {
     fail("delegate requires a parent grant object");
   }
+  // 1. The parent must itself be a well-formed grant.
+  const pv = validateGrant(parentGrant);
+  if (!pv.valid) {
+    const e = pv.errors[0];
+    fail(`parent grant is invalid: ${e.path || "(root)"} ${e.message}`);
+  }
+  if (parentGrant.status !== "active") {
+    fail("parent grant is not active (a revoked or expired grant cannot delegate)");
+  }
   if (parentGrant.delegable !== true) {
     fail("parent grant is not delegable");
   }
+
+  // 2. The delegator must BE the parent's subject.
+  const { issuer, subject, ttl_seconds, created } = meta;
+  if (issuer !== parentGrant.subject) {
+    fail(`delegation issuer (${issuer}) must be the parent grant's subject (${parentGrant.subject})`);
+  }
+
+  // 3. The delegation must occur within the parent's live window [created, expires).
+  const at = Date.parse(created);
+  if (Number.isNaN(at) || !(Date.parse(parentGrant.created) <= at && at < Date.parse(parentGrant.expires))) {
+    fail(`delegation time ${created} is outside the parent grant's live window [${parentGrant.created}, ${parentGrant.expires})`);
+  }
+
   requireCapabilities(capabilities);
 
-  // 2. Subset check: each requested capability must fall inside some parent
-  //    capability's authority — its action+resource axes must be covered by a
-  //    parent cap AND (when that parent cap constrains a dimension) the child's
-  //    constraints must only tighten it. We test the axes with `capabilityCoverage`
-  //    (not `capabilityCovers`) so the parent's constraints are NOT evaluated as
-  //    if the child's resource pattern were a concrete request — constraint
-  //    containment is a separate, structural `constraintsSubsume` check.
+  // 4. NO PRIVILEGE ESCALATION: every delegated capability must be CONTAINED by
+  //    some parent capability — action implied, resource DIRECTIONALLY contained
+  //    (not merely overlapping), and constraints only tightened.
   const parentCaps = Array.isArray(parentGrant.capabilities) ? parentGrant.capabilities : [];
   capabilities.forEach((cap, i) => {
-    const covered = parentCaps.some(
-      (pc) =>
-        capabilityCoverage(pc, cap.action, cap.resource).axes &&
-        constraintsSubsume(pc.constraints, cap.constraints)
-    );
+    const covered = parentCaps.some((pc) => capabilityContains(pc, cap));
     if (!covered) {
       fail(
         `capabilities[${i}] (${cap.action} on ${cap.resource}) exceeds the parent grant's authority`
@@ -126,7 +140,6 @@ export async function delegate(parentGrant, capabilities, meta = {}) {
   });
 
   // Build the sub-grant (validates issuer/subject/ttl/created and stamps parent).
-  const { issuer, subject, ttl_seconds, created } = meta;
   const sub = await makeGrant(capabilities, {
     issuer,
     subject,

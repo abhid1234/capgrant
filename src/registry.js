@@ -13,6 +13,9 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import {
+  validateGrant, validateRevocation, validateApprovalRequest, validateDecision, isIso8601Utc,
+} from "./schema.js";
 
 // --- pure core -------------------------------------------------------------
 
@@ -137,13 +140,35 @@ export function resolveRecords(records, opts = {}) {
   const decisions = [];
   for (const r of valid) {
     const type = r.type == null ? "grant" : r.type;
+    // A hash-valid record can still be structurally malformed. Validate every
+    // record against its type-specific schema before folding it, so a bad grant
+    // can't authorize actions and a bad decision can't mint a grant. (For grants
+    // the creation-time EXPIRES_MISMATCH is tolerated — resolveRecords derives
+    // expiry itself — but every structural rule is enforced.)
     if (type === "grant") {
+      const fatal = validateGrant({ ...r, type: "grant" }).errors.filter((e) => e.code !== "EXPIRES_MISMATCH");
+      if (fatal.length) {
+        notes.push(`skipped grant ${shortId(r.id)}: ${fatal[0].code} at ${fatal[0].path || "(root)"}`);
+        continue;
+      }
       grants.set(r.id, { ...r });
     } else if (type === "revocation") {
+      if (!validateRevocation(r).valid) {
+        notes.push(`skipped revocation ${shortId(r.id)}: malformed record`);
+        continue;
+      }
       revocations.push(r);
     } else if (type === "approval_request") {
+      if (!validateApprovalRequest(r).valid) {
+        notes.push(`skipped approval_request ${shortId(r.id)}: malformed record`);
+        continue;
+      }
       requests.set(r.id, { ...r, status: "pending" });
     } else if (type === "decision") {
+      if (!validateDecision(r).valid) {
+        notes.push(`skipped decision ${shortId(r.id)}: malformed record`);
+        continue;
+      }
       decisions.push(r);
     } else {
       notes.push(`skipped record ${shortId(r.id)}: unknown type "${r.type}"`);
@@ -172,8 +197,12 @@ export function resolveRecords(records, opts = {}) {
     if (dec.reason !== undefined) req.decided_reason = dec.reason;
     if (dec.decision === "approve") {
       const minted = mintGrant(req, dec);
-      grants.set(minted.id, minted);
-      notes.push(`request ${shortId(id)} approved → minted grant ${shortId(minted.id)}`);
+      if (minted) {
+        grants.set(minted.id, minted);
+        notes.push(`request ${shortId(id)} approved → minted grant ${shortId(minted.id)}`);
+      } else {
+        notes.push(`request ${shortId(id)} approved but no grant minted (invalid decision at/ttl)`);
+      }
     }
   }
 
@@ -239,7 +268,14 @@ export function resolveRecords(records, opts = {}) {
 function mintGrant(request, decision) {
   const created = decision.at;
   const ttl_seconds = decision.grant_ttl_seconds;
-  const expires = new Date(Date.parse(created) + ttl_seconds * 1000).toISOString();
+  // Defensive: never throw during resolution. A decision that isn't a clean
+  // ISO-UTC `at` + positive-integer TTL within Date range yields no grant.
+  if (!isIso8601Utc(created) || typeof ttl_seconds !== "number" || !Number.isInteger(ttl_seconds) || ttl_seconds <= 0) {
+    return null;
+  }
+  const ms = Date.parse(created) + ttl_seconds * 1000;
+  if (!Number.isFinite(ms) || Math.abs(ms) > 8.64e15) return null;
+  const expires = new Date(ms).toISOString();
   const record = {
     type: "grant",
     issuer: decision.approver,

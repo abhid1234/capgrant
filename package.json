@@ -1,6 +1,6 @@
 {
   "name": "@avee1234/capgrant",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "The open format for scoped, expiring agent capability grants. An issuer grants an agent scoped capabilities (action + resource, with a TTL); the agent checks before acting and an audit scores whether actions stayed in scope. Hierarchical actions, delegation chains, cascade revocation. Advisory + verifiable, zero dependencies, git-backed.",
   "type": "module",
   "main": "src/index.js",

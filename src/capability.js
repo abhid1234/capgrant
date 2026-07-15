@@ -20,7 +20,7 @@
 //                   STATELESS — capgrant keeps no counters; a constraint scores
 //                   the budget a single request declares for itself.
 
-import { globsOverlap } from "./glob.js";
+import { globsOverlap, globContains } from "./glob.js";
 
 // actionImplies(granted, requested) → does holding `granted` authorize doing
 // `requested`? Dot segments form the hierarchy:
@@ -58,6 +58,36 @@ export function resourceMatches(pattern, resource) {
   const globLike = (s) => s.includes("*") || s.includes("/");
   if (globLike(pattern) || globLike(resource)) return globsOverlap(pattern, resource);
   return pattern === resource;
+}
+
+// resourceContains(parentPattern, childPattern) → does the parent resource
+// pattern authorize EVERY resource the child pattern authorizes? The directional
+// analogue of resourceMatches, used ONLY for delegation (never request matching):
+//   - a `*` parent (capgrant's "any resource") contains everything;
+//   - a `*` child (any resource) is contained only by a `*` parent;
+//   - glob-like patterns defer to the directional `globContains`;
+//   - opaque tokens require exact equality.
+export function resourceContains(parentPattern, childPattern) {
+  if (parentPattern === "*") return true;
+  if (typeof parentPattern !== "string" || typeof childPattern !== "string") return false;
+  if (childPattern === "*") return false;
+  const globLike = (s) => s.includes("*") || s.includes("/");
+  if (globLike(parentPattern) || globLike(childPattern)) return globContains(parentPattern, childPattern);
+  return parentPattern === childPattern;
+}
+
+// capabilityContains(parentCap, childCap) → does the parent capability confer AT
+// LEAST all the authority the child does? The delegation rule (no privilege
+// escalation): the action must imply (broader ⊇ narrower), the resource must be
+// directionally CONTAINED (not merely overlapping), and the child's constraints
+// may only tighten the parent's. Distinct from capabilityCovers' request match.
+export function capabilityContains(parentCap, childCap) {
+  if (!parentCap || typeof parentCap !== "object" || !childCap || typeof childCap !== "object") return false;
+  return (
+    actionImplies(parentCap.action, childCap.action) &&
+    resourceContains(parentCap.resource, childCap.resource) &&
+    constraintsSubsume(parentCap.constraints, childCap.constraints)
+  );
 }
 
 // The documented constraint vocabulary a capability may carry. Everything else

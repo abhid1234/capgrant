@@ -96,6 +96,7 @@ export const ERROR_CODES = {
   EXPIRES_MISMATCH: "EXPIRES_MISMATCH",
   INVALID_ACTION: "INVALID_ACTION",
   DUPLICATE_ID: "DUPLICATE_ID",
+  FORBIDDEN_FIELD: "FORBIDDEN_FIELD",
 };
 
 // Strict ISO-8601 UTC: YYYY-MM-DDTHH:MM:SS(.sss)?Z. The regex gates the format
@@ -192,10 +193,26 @@ export function validateCapability(obj, prefix = "") {
 
   if ("resource" in obj) checkStringField(errors, obj, "resource", prefix);
 
-  if ("constraints" in obj && !isPlainObject(obj.constraints)) {
-    errors.push(
-      err(prefix + "constraints", ERROR_CODES.WRONG_TYPE, "constraints must be a JSON object")
-    );
+  if ("constraints" in obj) {
+    if (!isPlainObject(obj.constraints)) {
+      errors.push(
+        err(prefix + "constraints", ERROR_CODES.WRONG_TYPE, "constraints must be a JSON object")
+      );
+    } else {
+      // Validate the documented constraint keys so a nonsensical cap (a negative
+      // or non-finite numeric budget, a non-string method) can't enter a grant
+      // and produce meaningless authorization decisions. Unknown keys stay
+      // ignored for forward-compat.
+      const cn = obj.constraints;
+      for (const k of ["max_bytes", "max_calls", "rate", "path_depth"]) {
+        if (k in cn && (typeof cn[k] !== "number" || !Number.isFinite(cn[k]) || cn[k] < 0)) {
+          errors.push(err(prefix + "constraints." + k, ERROR_CODES.WRONG_TYPE, `${k} must be a finite number >= 0`));
+        }
+      }
+      if ("methods" in cn && (!Array.isArray(cn.methods) || !cn.methods.every((m) => typeof m === "string"))) {
+        errors.push(err(prefix + "constraints.methods", ERROR_CODES.WRONG_TYPE, "methods must be an array of strings"));
+      }
+    }
   }
 
   return { valid: errors.length === 0, errors };
@@ -454,6 +471,16 @@ export function validateDecision(obj) {
         )
       );
     }
+  }
+
+  // Cross-field: grant_ttl_seconds is REQUIRED for an approve (it is the TTL of
+  // the grant the approve mints) and FORBIDDEN for a deny (which mints nothing) —
+  // matching the `decide` constructor, so validateRegistry never blesses a
+  // record the constructor would reject.
+  if (obj.decision === "approve" && !("grant_ttl_seconds" in obj)) {
+    errors.push(err("grant_ttl_seconds", ERROR_CODES.MISSING_FIELD, "grant_ttl_seconds is required when decision is approve"));
+  } else if (obj.decision === "deny" && "grant_ttl_seconds" in obj) {
+    errors.push(err("grant_ttl_seconds", ERROR_CODES.FORBIDDEN_FIELD, "grant_ttl_seconds must be absent when decision is deny"));
   }
 
   return { valid: errors.length === 0, errors };

@@ -42,15 +42,17 @@ const END = "# <<< capgrant <<<";
 // commit.
 export function stagedPaths(opts = {}) {
   const { cwd = process.cwd() } = opts;
-  const r = spawnSync("git", ["diff", "--cached", "--name-only"], {
+  // `-z` gives NUL-terminated, UNQUOTED paths. Without it git quotes unusual
+  // names and a filename may legally contain a newline — either of which would
+  // split/mangle a path so an enforcement check inspects a DIFFERENT path than
+  // the one actually staged. Split on NUL and do NOT trim (leading/trailing
+  // spaces are valid path characters).
+  const r = spawnSync("git", ["diff", "--cached", "--name-only", "-z"], {
     cwd,
     encoding: "utf8",
   });
   if (r.status !== 0 || typeof r.stdout !== "string") return [];
-  return r.stdout
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
+  return r.stdout.split("\0").filter((p) => p.length > 0);
 }
 
 // checkStagedWrites(paths, { registry, subject, now }) → { clear, violations, notes }

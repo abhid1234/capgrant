@@ -9,8 +9,8 @@
 // the CLI is the only part that reads the wall clock and appends to the store.
 
 import { computeRecordId } from "./registry.js";
-import { validateCapability } from "./schema.js";
-import { capabilityCoverage, constraintsSubsume } from "./capability.js";
+import { validateCapability, validateGrant, isIso8601Utc } from "./schema.js";
+import { capabilityContains } from "./capability.js";
 
 function fail(msg) {
   throw new Error(`capgrant: ${msg}`);
@@ -29,17 +29,22 @@ function requirePositiveInt(value, name) {
 }
 
 function requireIso(value, name) {
-  // A whole-second ISO string is required so `expires` is exact; we accept any
-  // Date-parseable string here and let the record validator enforce strict
-  // ISO-8601-UTC downstream. A NaN parse is an immediate hard failure.
-  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
-    fail(`${name} must be an ISO-8601 timestamp`);
+  // Enforce STRICT ISO-8601-UTC up front (matching the record validator), so a
+  // constructor can never emit an offset/non-UTC timestamp its own schema would
+  // later reject. `Date.parse` alone accepts offsets and loose forms.
+  if (!isIso8601Utc(value)) {
+    fail(`${name} must be an ISO-8601-UTC timestamp (…Z)`);
   }
 }
 
-// created + ttl_seconds as an ISO-8601-UTC string, to the millisecond.
+// created + ttl_seconds as an ISO-8601-UTC string, to the millisecond. Rejects a
+// sum outside the representable Date range rather than throwing a RangeError.
 function isoAddSeconds(created, ttl_seconds) {
-  return new Date(Date.parse(created) + ttl_seconds * 1000).toISOString();
+  const ms = Date.parse(created) + ttl_seconds * 1000;
+  if (!Number.isFinite(ms) || Math.abs(ms) > 8.64e15) {
+    fail("expires would fall outside the representable date range");
+  }
+  return new Date(ms).toISOString();
 }
 
 // Validate a capabilities array (non-empty, each a well-formed capability),
@@ -113,25 +118,47 @@ export function delegate(parentGrant, capabilities, meta = {}) {
   if (!parentGrant || typeof parentGrant !== "object") {
     fail("delegate requires a parent grant object");
   }
+  // 1. The parent must itself be a WELL-FORMED grant — never trust a hand-built
+  //    or partial object (e.g. one with a missing/invalid expiry) as the root of
+  //    a delegation.
+  const pv = validateGrant(parentGrant);
+  if (!pv.valid) {
+    const e = pv.errors[0];
+    fail(`parent grant is invalid: ${e.path || "(root)"} ${e.message}`);
+  }
+  if (parentGrant.status !== "active") {
+    fail("parent grant is not active (a revoked or expired grant cannot delegate)");
+  }
   if (parentGrant.delegable !== true) {
     fail("parent grant is not delegable");
   }
+
+  // 2. The delegator must BE the parent's subject — you can only sub-grant
+  //    authority granted to YOU, not authority granted to someone else.
+  const { issuer, subject, ttl_seconds, created } = meta;
+  if (issuer !== parentGrant.subject) {
+    fail(`delegation issuer (${issuer}) must be the parent grant's subject (${parentGrant.subject})`);
+  }
+
+  // 3. The delegation must occur within the parent's live window
+  //    [created, expires).
+  requireIso(created, "created");
+  const at = Date.parse(created);
+  if (!(Date.parse(parentGrant.created) <= at && at < Date.parse(parentGrant.expires))) {
+    fail(
+      `delegation time ${created} is outside the parent grant's live window [${parentGrant.created}, ${parentGrant.expires})`
+    );
+  }
+
   requireCapabilities(capabilities);
 
-  // 2. Subset check: each requested capability must fall inside some parent
-  //    capability's authority — its action+resource axes must be covered by a
-  //    parent cap AND (when that parent cap constrains a dimension) the child's
-  //    constraints must only tighten it. We test the axes with `capabilityCoverage`
-  //    (not `capabilityCovers`) so the parent's constraints are NOT evaluated as
-  //    if the child's resource pattern were a concrete request — constraint
-  //    containment is a separate, structural `constraintsSubsume` check.
+  // 4. NO PRIVILEGE ESCALATION: every delegated capability must be CONTAINED by
+  //    some parent capability — action implied, resource DIRECTIONALLY contained
+  //    (not merely overlapping — the old bug that let `src/**` be sub-granted
+  //    under a parent scoped to `src/*.js`), and constraints only tightened.
   const parentCaps = Array.isArray(parentGrant.capabilities) ? parentGrant.capabilities : [];
   capabilities.forEach((cap, i) => {
-    const covered = parentCaps.some(
-      (pc) =>
-        capabilityCoverage(pc, cap.action, cap.resource).axes &&
-        constraintsSubsume(pc.constraints, cap.constraints)
-    );
+    const covered = parentCaps.some((pc) => capabilityContains(pc, cap));
     if (!covered) {
       fail(
         `capabilities[${i}] (${cap.action} on ${cap.resource}) exceeds the parent grant's authority`
@@ -140,7 +167,6 @@ export function delegate(parentGrant, capabilities, meta = {}) {
   });
 
   // Build the sub-grant (validates issuer/subject/ttl/created and stamps parent).
-  const { issuer, subject, ttl_seconds, created } = meta;
   const sub = makeGrant(capabilities, {
     issuer,
     subject,
@@ -186,21 +212,24 @@ export function revoke(grantId, meta = {}) {
 // a non-integer, zero, a negative, or empty input returns null (never throws) so
 // the caller can print one clear error and exit.
 export function parseTtl(input) {
+  // Require a SAFE integer everywhere: a huge digit string otherwise parses to a
+  // non-safe integer (or Infinity) and would overflow the expiry date math.
   if (typeof input === "number") {
-    return Number.isInteger(input) && input > 0 ? input : null;
+    return Number.isSafeInteger(input) && input > 0 ? input : null;
   }
   if (typeof input !== "string") return null;
 
   const s = input.trim();
   if (/^\d+$/.test(s)) {
     const n = Number(s);
-    return n > 0 ? n : null; // bare seconds; "0" → null
+    return Number.isSafeInteger(n) && n > 0 ? n : null; // bare seconds; "0" → null
   }
 
   const m = /^(\d+)(s|m|h|d)$/.exec(s);
   if (!m) return null;
   const n = Number(m[1]);
-  if (n <= 0) return null; // "0m" → null
+  if (!Number.isSafeInteger(n) || n <= 0) return null; // "0m" → null
   const mult = { s: 1, m: 60, h: 3600, d: 86400 }[m[2]];
-  return n * mult;
+  const total = n * mult;
+  return Number.isSafeInteger(total) && total > 0 ? total : null;
 }
