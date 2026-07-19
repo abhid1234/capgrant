@@ -4,6 +4,8 @@
 
 > Working name — see [`vision.md`](vision.md). Grounded in the mid-2026 state of multi-agent coding.
 
+**▶ [Live playground](https://capgrant.vercel.app)** · **📖 [Read the story](https://abhid.substack.com/p/what-each-agent-is-allowed-to-do)** · **📦 [npm](https://www.npmjs.com/package/@avee1234/capgrant)**
+
 A fleet of AI coding agents runs with far too much ambient authority. Each agent can usually write anywhere, run anything, and reach any network endpoint the process can — because the harness, not the task, defines the blast radius (Claude Code, Codex, Cursor, Google Antigravity all inherit the same broad process permissions). The ecosystem standardized how agents *call* tools (MCP) and how they *hand off* tasks (A2A), but not the **authority** an agent carries: what it may do, over what, for how long, and who said so. capgrant is the missing authorization layer: an open format for *scoped intent*, not another sandbox.
 
 ```bash
